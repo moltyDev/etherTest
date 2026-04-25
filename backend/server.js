@@ -14,8 +14,10 @@ const ROOT = path.join(__dirname, "..");
 const FRONTEND_DIR = path.join(ROOT, "frontend");
 const DEPLOYMENT_PATH = path.join(FRONTEND_DIR, "deployment.json");
 const UPLOADS_DIR = path.join(FRONTEND_DIR, "uploads");
-const UPLOAD_MODE = String(process.env.UPLOAD_MODE || (process.env.VERCEL ? "inline" : "disk")).toLowerCase();
-const USE_DISK_UPLOADS = UPLOAD_MODE !== "inline";
+const IS_VERCEL_RUNTIME = Boolean(process.env.VERCEL);
+const UPLOAD_MODE = String(process.env.UPLOAD_MODE || (IS_VERCEL_RUNTIME ? "inline" : "disk")).toLowerCase();
+// Vercel runtime filesystem is ephemeral/read-only for project paths. Force inline mode there.
+const USE_DISK_UPLOADS = !IS_VERCEL_RUNTIME && UPLOAD_MODE !== "inline";
 
 const FACTORY_ARTIFACT = require(path.join(ROOT, "artifacts", "contracts", "MemeLaunchFactory.sol", "MemeLaunchFactory.json"));
 const POOL_ARTIFACT = require(path.join(ROOT, "artifacts", "contracts", "MemePool.sol", "MemePool.json"));

@@ -305,7 +305,7 @@ function showWalletPickerModal(wallets = []) {
       return;
     }
 
-    const preferredOrder = ["metamask", "rabby", "coinbase", "injected", "unknown"];
+    const preferredOrder = ["metamask", "rabby", "coinbase", "phantom", "injected", "unknown"];
     const orderedWallets = [...wallets].sort((a, b) => {
       const ai = preferredOrder.indexOf(a.key);
       const bi = preferredOrder.indexOf(b.key);
@@ -319,17 +319,19 @@ function showWalletPickerModal(wallets = []) {
       if (wallet.key === "metamask") return "MM";
       if (wallet.key === "rabby") return "RB";
       if (wallet.key === "coinbase") return "CB";
+      if (wallet.key === "phantom") return "PH";
       return "W";
     };
 
     const renderWalletButton = (wallet, withStatus = true) => {
-      const status = withStatus ? (recentChoice && wallet.key === recentChoice ? "RECENT" : "DETECTED") : "";
+      const isRecent = recentChoice && (wallet.id === recentChoice || wallet.key === recentChoice);
+      const status = withStatus ? (isRecent ? "RECENT" : "DETECTED") : "";
       const badge = status
         ? `<span class="wallet-picker-badge ${status === "RECENT" ? "recent" : "detected"}"><i></i>${status}</span>`
         : `<span class="wallet-picker-arrow">></span>`;
 
       return `
-        <button type="button" class="btn-ghost wallet-picker-btn" data-wallet-key="${wallet.key}">
+        <button type="button" class="btn-ghost wallet-picker-btn" data-wallet-id="${wallet.id || wallet.key}">
           <span class="wallet-picker-btn-left">
             <span class="wallet-picker-icon wallet-${wallet.key}">${iconLabel(wallet)}</span>
             <span class="wallet-picker-name">${wallet.label}</span>
@@ -429,9 +431,9 @@ function showWalletPickerModal(wallets = []) {
       // placeholder for future email/social login
     });
 
-    overlay.querySelectorAll("[data-wallet-key]").forEach((button) => {
+    overlay.querySelectorAll("[data-wallet-id]").forEach((button) => {
       button.addEventListener("click", () => {
-        const key = String(button.getAttribute("data-wallet-key") || "");
+        const key = String(button.getAttribute("data-wallet-id") || "");
         cleanup();
         resolve(key);
       });
@@ -439,7 +441,7 @@ function showWalletPickerModal(wallets = []) {
 
     document.addEventListener("keydown", onKeydown);
     document.body.appendChild(overlay);
-    overlay.querySelector("[data-wallet-key]")?.focus();
+    overlay.querySelector("[data-wallet-id]")?.focus();
   });
 }
 

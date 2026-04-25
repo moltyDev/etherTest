@@ -52,6 +52,8 @@ const walletListenersAttached = new WeakSet();
 const eip6963Providers = new Map();
 let eip6963Listening = false;
 let eip6963Requested = false;
+const providerIds = new WeakMap();
+let providerIdCounter = 0;
 const WALLET_SESSION_KEY = "etherpump.wallet.session.v1";
 const PROFILE_STORAGE_KEY = "etherpump.profile.v1";
 const ETH_USD_CACHE_KEY = "etherpump.ethusd.v1";
@@ -333,20 +335,43 @@ function ensureEip6963Discovery() {
   }
 }
 
+function getProviderLocalId(provider) {
+  if (!provider) return "unknown";
+  const existing = providerIds.get(provider);
+  if (existing) return existing;
+  providerIdCounter += 1;
+  const next = `p${providerIdCounter}`;
+  providerIds.set(provider, next);
+  return next;
+}
+
 function getWalletMeta(injected, info = null) {
   const infoName = String(info?.name || "").trim();
   const hint = `${String(info?.rdns || "")} ${infoName}`.toLowerCase();
-  if (!injected) return { key: "unknown", label: infoName || "Unknown", provider: injected };
+  const providerLocalId = getProviderLocalId(injected);
+  const infoIdRaw = String(info?.uuid || info?.rdns || infoName || "").trim().toLowerCase();
+  const infoId = infoIdRaw.replace(/[^a-z0-9._:-]/g, "-");
+  const mk = (key, label) => ({
+    id: `${key}:${infoId || providerLocalId}`,
+    key,
+    label,
+    provider: injected
+  });
+
+  if (!injected) return mk("unknown", infoName || "Unknown");
+  if (hint.includes("phantom") || injected.isPhantom) {
+    return mk("phantom", infoName || "Phantom");
+  }
   if (injected.isRabby || hint.includes("rabby")) {
-    return { key: "rabby", label: infoName || "Rabby", provider: injected };
+    return mk("rabby", infoName || "Rabby");
   }
   if (injected.isMetaMask || hint.includes("metamask")) {
-    return { key: "metamask", label: infoName || "MetaMask", provider: injected };
+    return mk("metamask", infoName || "MetaMask");
   }
   if (injected.isCoinbaseWallet || hint.includes("coinbase")) {
-    return { key: "coinbase", label: infoName || "Coinbase", provider: injected };
+    return mk("coinbase", infoName || "Coinbase");
   }
-  return { key: "injected", label: infoName || "Injected", provider: injected };
+  return mk("injected", infoName || "Injected");
 }
 
 export function discoverWallets() {
@@ -428,7 +453,7 @@ function resolveWallet(choice = "metamask") {
   const wallets = discoverWallets();
   if (!wallets.length) return null;
   if (!choice) return wallets[0];
-  return wallets.find((w) => w.key === choice) || wallets[0];
+  return wallets.find((w) => w.id === choice) || wallets.find((w) => w.key === choice) || wallets[0];
 }
 
 export async function connectWallet(choice = "", options = {}) {
@@ -484,7 +509,7 @@ export async function connectWallet(choice = "", options = {}) {
     walletListenersAttached.add(wallet.provider);
   }
 
-  saveWalletSession({ connected: true, choice: wallet.key });
+  saveWalletSession({ connected: true, choice: wallet.id || wallet.key });
 
   return { ...state };
 }

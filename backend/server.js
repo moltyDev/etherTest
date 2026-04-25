@@ -20,6 +20,10 @@ const PROFILE_DB_PATH = IS_VERCEL_RUNTIME ? path.join("/tmp", "etherpump-profile
 const MONGODB_URI = String(process.env.MONGODB_URI || "").trim();
 const MONGODB_DB_NAME = String(process.env.MONGODB_DB_NAME || "etherpump").trim();
 const MONGODB_PROFILE_COLLECTION = String(process.env.MONGODB_PROFILE_COLLECTION || "user_profiles").trim();
+const MONGO_SERVER_SELECTION_TIMEOUT_MS = Math.max(2000, Number(process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS || 12000));
+const MONGO_CONNECT_TIMEOUT_MS = Math.max(2000, Number(process.env.MONGO_CONNECT_TIMEOUT_MS || 12000));
+const MONGO_SOCKET_TIMEOUT_MS = Math.max(5000, Number(process.env.MONGO_SOCKET_TIMEOUT_MS || 20000));
+const MONGO_CONNECT_RETRIES = Math.max(0, Number(process.env.MONGO_CONNECT_RETRIES || 1));
 const PROFILE_IMAGE_URI_MAX_LENGTH = 2 * 1024 * 1024;
 const STRICT_PROFILE_STORE = String(process.env.STRICT_PROFILE_STORE || (IS_VERCEL_RUNTIME ? "1" : "0")) === "1";
 // Vercel runtime filesystem is ephemeral/read-only for project paths. Force inline mode there.
@@ -93,6 +97,7 @@ const pairTradesCache = new Map();
 let profileDbCache = null;
 let mongoProfileCollectionPromise = null;
 let mongoProfileCollectionClient = null;
+const profileLastKnownCache = new Map();
 
 function getCachedValue(cache, key) {
   const row = cache.get(key);
@@ -106,6 +111,10 @@ function getCachedValue(cache, key) {
 
 function setCachedValue(cache, key, value, ttlMs) {
   cache.set(key, { value, expiresAt: Date.now() + ttlMs });
+}
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
 }
 
 async function withCache(cache, key, ttlMs, builder) {
@@ -407,6 +416,18 @@ function sanitizeProfileValue(address, value = {}) {
   };
 }
 
+function cacheProfileRow(address, value = {}) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) return;
+  profileLastKnownCache.set(normalized.toLowerCase(), sanitizeProfileValue(normalized, value));
+}
+
+function getCachedProfile(address) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) return null;
+  return profileLastKnownCache.get(normalized.toLowerCase()) || null;
+}
+
 function readProfileDb() {
   if (profileDbCache && typeof profileDbCache === "object") {
     return profileDbCache;
@@ -482,14 +503,36 @@ async function getMongoProfileCollection() {
 
   mongoProfileCollectionPromise = (async () => {
     const { MongoClient } = require("mongodb");
-    const client = new MongoClient(MONGODB_URI, {
-      serverSelectionTimeoutMS: 5000,
-      maxPoolSize: 6
-    });
-    await client.connect();
-    mongoProfileCollectionClient = client;
-    const db = client.db(MONGODB_DB_NAME || "etherpump");
-    return db.collection(MONGODB_PROFILE_COLLECTION || "user_profiles");
+    let lastError = null;
+
+    for (let attempt = 0; attempt <= MONGO_CONNECT_RETRIES; attempt++) {
+      const client = new MongoClient(MONGODB_URI, {
+        serverSelectionTimeoutMS: MONGO_SERVER_SELECTION_TIMEOUT_MS,
+        connectTimeoutMS: MONGO_CONNECT_TIMEOUT_MS,
+        socketTimeoutMS: MONGO_SOCKET_TIMEOUT_MS,
+        maxPoolSize: 6
+      });
+
+      try {
+        await client.connect();
+        await client.db("admin").command({ ping: 1 });
+        mongoProfileCollectionClient = client;
+        const db = client.db(MONGODB_DB_NAME || "etherpump");
+        return db.collection(MONGODB_PROFILE_COLLECTION || "user_profiles");
+      } catch (error) {
+        lastError = error;
+        try {
+          await client.close();
+        } catch {
+          // ignore close error
+        }
+        if (attempt < MONGO_CONNECT_RETRIES) {
+          await sleep(300 * (attempt + 1));
+        }
+      }
+    }
+
+    throw lastError || new Error("Mongo profile connection failed");
   })();
 
   try {
@@ -526,11 +569,18 @@ async function getPersistedProfile(address) {
       const key = normalized.toLowerCase();
       const row = await mongo.findOne({ _id: key });
       if (row) {
+        cacheProfileRow(normalized, row);
         return sanitizeProfileValue(normalized, row);
       }
-      return sanitizeProfileValue(normalized, {});
+      const empty = sanitizeProfileValue(normalized, {});
+      cacheProfileRow(normalized, empty);
+      return empty;
     }
   } catch (error) {
+    const cached = getCachedProfile(normalized);
+    if (cached) {
+      return cached;
+    }
     if (!allowFileProfileFallback()) {
       throw new Error(`Mongo profile read failed: ${error?.message || "connection error"}`);
     }
@@ -554,11 +604,23 @@ async function getPersistedProfiles(addresses = []) {
       const out = {};
       for (const address of normalized) {
         const key = address.toLowerCase();
-        out[key] = sanitizeProfileValue(address, byId.get(key) || {});
+        const profile = sanitizeProfileValue(address, byId.get(key) || {});
+        out[key] = profile;
+        cacheProfileRow(address, profile);
       }
       return out;
     }
   } catch (error) {
+    const cachedOnly = {};
+    for (const address of normalized) {
+      const hit = getCachedProfile(address);
+      if (hit) {
+        cachedOnly[address.toLowerCase()] = hit;
+      }
+    }
+    if (Object.keys(cachedOnly).length) {
+      return cachedOnly;
+    }
     if (!allowFileProfileFallback()) {
       throw new Error(`Mongo profile batch read failed: ${error?.message || "connection error"}`);
     }
@@ -594,6 +656,7 @@ async function setPersistedProfile(address, value = {}) {
         },
         { upsert: true }
       );
+      cacheProfileRow(normalized, next);
       return next;
     }
   } catch (error) {
@@ -602,7 +665,9 @@ async function setPersistedProfile(address, value = {}) {
     }
   }
 
-  return setPersistedProfileSync(normalized, next);
+  const saved = setPersistedProfileSync(normalized, next);
+  cacheProfileRow(normalized, saved);
+  return saved;
 }
 
 function clearProfileDependentCaches() {

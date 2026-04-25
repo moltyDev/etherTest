@@ -17,13 +17,12 @@ const UPLOADS_DIR = path.join(FRONTEND_DIR, "uploads");
 const IS_VERCEL_RUNTIME = Boolean(process.env.VERCEL);
 const UPLOAD_MODE = String(process.env.UPLOAD_MODE || (IS_VERCEL_RUNTIME ? "inline" : "disk")).toLowerCase();
 const PROFILE_DB_PATH = IS_VERCEL_RUNTIME ? path.join("/tmp", "etherpump-profiles.json") : path.join(ROOT, "cache", "profiles.json");
-const MONGODB_URI = String(process.env.MONGODB_URI || "").trim();
-const MONGODB_DB_NAME = String(process.env.MONGODB_DB_NAME || "etherpump").trim();
-const MONGODB_PROFILE_COLLECTION = String(process.env.MONGODB_PROFILE_COLLECTION || "user_profiles").trim();
-const MONGO_SERVER_SELECTION_TIMEOUT_MS = Math.max(2000, Number(process.env.MONGO_SERVER_SELECTION_TIMEOUT_MS || 12000));
-const MONGO_CONNECT_TIMEOUT_MS = Math.max(2000, Number(process.env.MONGO_CONNECT_TIMEOUT_MS || 12000));
-const MONGO_SOCKET_TIMEOUT_MS = Math.max(5000, Number(process.env.MONGO_SOCKET_TIMEOUT_MS || 20000));
-const MONGO_CONNECT_RETRIES = Math.max(0, Number(process.env.MONGO_CONNECT_RETRIES || 1));
+const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
+const SUPABASE_SERVICE_ROLE_KEY = String(
+  process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || ""
+).trim();
+const SUPABASE_PROFILE_TABLE = String(process.env.SUPABASE_PROFILE_TABLE || "user_profiles").trim();
+const SUPABASE_SCHEMA = String(process.env.SUPABASE_SCHEMA || "public").trim();
 const PROFILE_IMAGE_URI_MAX_LENGTH = 2 * 1024 * 1024;
 const STRICT_PROFILE_STORE = String(process.env.STRICT_PROFILE_STORE || (IS_VERCEL_RUNTIME ? "1" : "0")) === "1";
 // Vercel runtime filesystem is ephemeral/read-only for project paths. Force inline mode there.
@@ -95,8 +94,6 @@ const dexTokenCache = new Map();
 const geckoIndexedSticky = new Set();
 const pairTradesCache = new Map();
 let profileDbCache = null;
-let mongoProfileCollectionPromise = null;
-let mongoProfileCollectionClient = null;
 const profileLastKnownCache = new Map();
 
 function getCachedValue(cache, key) {
@@ -111,10 +108,6 @@ function getCachedValue(cache, key) {
 
 function setCachedValue(cache, key, value, ttlMs) {
   cache.set(key, { value, expiresAt: Date.now() + ttlMs });
-}
-
-function sleep(ms) {
-  return new Promise((resolve) => setTimeout(resolve, Math.max(0, Number(ms || 0))));
 }
 
 async function withCache(cache, key, ttlMs, builder) {
@@ -490,58 +483,101 @@ function setPersistedProfileSync(address, value = {}) {
   return store[key];
 }
 
-async function getMongoProfileCollection() {
-  if (!MONGODB_URI) return null;
-  if (mongoProfileCollectionPromise) {
-    try {
-      return await mongoProfileCollectionPromise;
-    } catch {
-      mongoProfileCollectionPromise = null;
-      mongoProfileCollectionClient = null;
+function isSupabaseConfigured() {
+  return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY && SUPABASE_PROFILE_TABLE);
+}
+
+function getSupabaseRestUrl(relativePath, query = null) {
+  const base = SUPABASE_URL.replace(/\/+$/, "");
+  const url = new URL(`${base}/rest/v1/${relativePath.replace(/^\/+/, "")}`);
+  if (query && typeof query === "object") {
+    for (const [key, value] of Object.entries(query)) {
+      if (value == null) continue;
+      url.searchParams.set(key, String(value));
     }
   }
+  return url.toString();
+}
 
-  mongoProfileCollectionPromise = (async () => {
-    const { MongoClient } = require("mongodb");
-    let lastError = null;
-
-    for (let attempt = 0; attempt <= MONGO_CONNECT_RETRIES; attempt++) {
-      const client = new MongoClient(MONGODB_URI, {
-        serverSelectionTimeoutMS: MONGO_SERVER_SELECTION_TIMEOUT_MS,
-        connectTimeoutMS: MONGO_CONNECT_TIMEOUT_MS,
-        socketTimeoutMS: MONGO_SOCKET_TIMEOUT_MS,
-        maxPoolSize: 6
-      });
-
-      try {
-        await client.connect();
-        await client.db("admin").command({ ping: 1 });
-        mongoProfileCollectionClient = client;
-        const db = client.db(MONGODB_DB_NAME || "etherpump");
-        return db.collection(MONGODB_PROFILE_COLLECTION || "user_profiles");
-      } catch (error) {
-        lastError = error;
-        try {
-          await client.close();
-        } catch {
-          // ignore close error
-        }
-        if (attempt < MONGO_CONNECT_RETRIES) {
-          await sleep(300 * (attempt + 1));
-        }
-      }
-    }
-
-    throw lastError || new Error("Mongo profile connection failed");
-  })();
-
+async function supabaseRequest(relativePath, { method = "GET", query = null, body = null, prefer = "" } = {}) {
+  if (!isSupabaseConfigured()) {
+    return null;
+  }
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    Accept: "application/json"
+  };
+  if (SUPABASE_SCHEMA) {
+    headers["Accept-Profile"] = SUPABASE_SCHEMA;
+    headers["Content-Profile"] = SUPABASE_SCHEMA;
+  }
+  if (prefer) {
+    headers.Prefer = prefer;
+  }
+  const init = { method, headers };
+  if (body != null) {
+    headers["Content-Type"] = "application/json";
+    init.body = JSON.stringify(body);
+  }
+  const response = await fetch(getSupabaseRestUrl(relativePath, query), init);
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Supabase ${method} ${relativePath} failed: ${response.status} ${text}`.trim());
+  }
+  if (response.status === 204) return [];
+  const text = await response.text();
+  if (!text) return [];
   try {
-    return await mongoProfileCollectionPromise;
-  } catch (error) {
-    mongoProfileCollectionPromise = null;
-    mongoProfileCollectionClient = null;
-    throw error;
+    return JSON.parse(text);
+  } catch {
+    return [];
   }
+}
+
+function quotedCsv(values = []) {
+  const out = [];
+  for (const value of values) {
+    const safe = String(value || "").replace(/"/g, '\\"');
+    out.push(`"${safe}"`);
+  }
+  return out.join(",");
+}
+
+async function getSupabaseProfile(address) {
+  const key = String(address || "").toLowerCase();
+  const rows = await supabaseRequest(SUPABASE_PROFILE_TABLE, {
+    query: {
+      select: "address,username,bio,imageUri",
+      address: `eq.${key}`,
+      limit: 1
+    }
+  });
+  return Array.isArray(rows) ? rows[0] || null : null;
+}
+
+async function getSupabaseProfiles(addresses = []) {
+  if (!addresses.length) return [];
+  const rows = await supabaseRequest(SUPABASE_PROFILE_TABLE, {
+    query: {
+      select: "address,username,bio,imageUri",
+      address: `in.(${quotedCsv(addresses.map((row) => String(row || "").toLowerCase()))})`
+    }
+  });
+  return Array.isArray(rows) ? rows : [];
+}
+
+async function upsertSupabaseProfile(row) {
+  const rows = await supabaseRequest(SUPABASE_PROFILE_TABLE, {
+    method: "POST",
+    query: {
+      on_conflict: "address",
+      select: "address,username,bio,imageUri"
+    },
+    body: [row],
+    prefer: "resolution=merge-duplicates,return=representation"
+  });
+  return Array.isArray(rows) ? rows[0] || null : null;
 }
 
 function allowFileProfileFallback() {
@@ -552,8 +588,8 @@ function allowFileProfileFallback() {
 
 function assertProfileStoreConfigured() {
   if (!STRICT_PROFILE_STORE) return;
-  if (!MONGODB_URI) {
-    throw new Error("Profile store requires MONGODB_URI in strict mode");
+  if (!isSupabaseConfigured()) {
+    throw new Error("Profile store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in strict mode");
   }
 }
 
@@ -564,10 +600,8 @@ async function getPersistedProfile(address) {
   assertProfileStoreConfigured();
 
   try {
-    const mongo = await getMongoProfileCollection();
-    if (mongo) {
-      const key = normalized.toLowerCase();
-      const row = await mongo.findOne({ _id: key });
+    if (isSupabaseConfigured()) {
+      const row = await getSupabaseProfile(normalized);
       if (row) {
         cacheProfileRow(normalized, row);
         return sanitizeProfileValue(normalized, row);
@@ -582,7 +616,7 @@ async function getPersistedProfile(address) {
       return cached;
     }
     if (!allowFileProfileFallback()) {
-      throw new Error(`Mongo profile read failed: ${error?.message || "connection error"}`);
+      throw new Error(`Supabase profile read failed: ${error?.message || "connection error"}`);
     }
   }
 
@@ -596,11 +630,10 @@ async function getPersistedProfiles(addresses = []) {
   assertProfileStoreConfigured();
 
   try {
-    const mongo = await getMongoProfileCollection();
-    if (mongo) {
+    if (isSupabaseConfigured()) {
       const keys = normalized.map((row) => row.toLowerCase());
-      const rows = await mongo.find({ _id: { $in: keys } }).toArray();
-      const byId = new Map(rows.map((row) => [String(row?._id || "").toLowerCase(), row]));
+      const rows = await getSupabaseProfiles(keys);
+      const byId = new Map(rows.map((row) => [String(row?.address || "").toLowerCase(), row]));
       const out = {};
       for (const address of normalized) {
         const key = address.toLowerCase();
@@ -622,7 +655,7 @@ async function getPersistedProfiles(addresses = []) {
       return cachedOnly;
     }
     if (!allowFileProfileFallback()) {
-      throw new Error(`Mongo profile batch read failed: ${error?.message || "connection error"}`);
+      throw new Error(`Supabase profile batch read failed: ${error?.message || "connection error"}`);
     }
   }
 
@@ -638,30 +671,19 @@ async function setPersistedProfile(address, value = {}) {
   assertProfileStoreConfigured();
 
   try {
-    const mongo = await getMongoProfileCollection();
-    if (mongo) {
-      await mongo.updateOne(
-        { _id: key },
-        {
-          $set: {
-            address: next.address,
-            username: next.username,
-            bio: next.bio,
-            imageUri: next.imageUri,
-            updatedAt: new Date()
-          },
-          $setOnInsert: {
-            createdAt: new Date()
-          }
-        },
-        { upsert: true }
-      );
+    if (isSupabaseConfigured()) {
+      await upsertSupabaseProfile({
+        address: key,
+        username: next.username,
+        bio: next.bio,
+        imageUri: next.imageUri
+      });
       cacheProfileRow(normalized, next);
       return next;
     }
   } catch (error) {
     if (!allowFileProfileFallback()) {
-      throw new Error(`Mongo profile write failed: ${error?.message || "connection error"}`);
+      throw new Error(`Supabase profile write failed: ${error?.message || "connection error"}`);
     }
   }
 

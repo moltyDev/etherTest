@@ -62,6 +62,7 @@ const CHAIN_PREFERENCE_KEY = "etherpump.chain.preferred.v1";
 const ETH_USD_FALLBACK = 3000;
 const ETH_USD_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROFILE_REMOTE_TTL_MS = 60 * 1000;
+const PROFILE_IMAGE_URI_MAX_LENGTH = 2 * 1024 * 1024;
 const profileInFlight = new Map();
 
 export function getPreferredChainId() {
@@ -617,7 +618,7 @@ function normalizeProfileValue(address, value = {}) {
     address: normalized,
     username: username || defaultUsername(normalized),
     bio: bio.slice(0, 500),
-    imageUri: imageUri.slice(0, 2048)
+    imageUri: imageUri.slice(0, PROFILE_IMAGE_URI_MAX_LENGTH)
   };
 }
 
@@ -762,7 +763,7 @@ export async function hydrateUserProfiles(addresses = [], options = {}) {
 
 export async function saveUserProfile(address, value = {}) {
   const normalized = normalizeProfileAddress(address);
-  if (!normalized) return { username: "Guest", bio: "", imageUri: "", address: "" };
+  if (!normalized) return { username: "Guest", bio: "", imageUri: "", address: "", synced: false };
   const existing = loadUserProfile(normalized);
   const local = cacheProfileLocal(normalized, {
     username: value.username ?? existing.username,
@@ -771,9 +772,14 @@ export async function saveUserProfile(address, value = {}) {
   });
   try {
     const remote = await profileApiPost(`/api/user-profile/${normalized}`, local);
-    return cacheProfileLocal(normalized, remote || local);
-  } catch {
-    return local;
+    const next = cacheProfileLocal(normalized, remote || local);
+    return { ...next, synced: true };
+  } catch (error) {
+    return {
+      ...local,
+      synced: false,
+      error: String(error?.message || "Profile sync failed")
+    };
   }
 }
 

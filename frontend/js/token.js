@@ -759,13 +759,17 @@ function setupEditProfileModal() {
       setAlert(ui.alert, "Username is required", true);
       return;
     }
-    await saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
+    const saved = await saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
     updateProfileIdentity();
     if (state.launch?.creator?.toLowerCase() === ws.address.toLowerCase()) {
       setTokenHeader(state.launch);
     }
     hideEditProfileModal();
-    setAlert(ui.alert, "Profile updated");
+    if (saved?.synced) {
+      setAlert(ui.alert, "Profile updated");
+    } else {
+      setAlert(ui.alert, "Profile saved locally, but cloud sync failed. Check backend env/API.", true);
+    }
   });
 }
 

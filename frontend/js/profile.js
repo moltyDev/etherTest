@@ -109,7 +109,8 @@ const COPY_PILL_ICON = `
 
 function creatorHandle(address) {
   if (!address) return "anon";
-  return `eth_${String(address).slice(2, 6).toLowerCase()}`;
+  const profile = loadUserProfile(address);
+  return profile.username || defaultUsername(address);
 }
 
 function humanAgo(timestampSec) {
@@ -848,13 +849,17 @@ function setupEditProfileModal() {
       return;
     }
 
-    await saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
+    const saved = await saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
     updateProfileIdentity();
     if (normalizeAddress(state.address) === normalizeAddress(ws.address)) {
       renderProfileHeader(ws.address);
     }
     hideEditProfileModal();
-    setAlert(ui.alert, "Profile updated");
+    if (saved?.synced) {
+      setAlert(ui.alert, "Profile updated");
+    } else {
+      setAlert(ui.alert, "Profile saved locally, but cloud sync failed. Check backend env/API.", true);
+    }
   });
 }
 

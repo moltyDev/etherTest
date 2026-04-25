@@ -17,6 +17,10 @@ const UPLOADS_DIR = path.join(FRONTEND_DIR, "uploads");
 const IS_VERCEL_RUNTIME = Boolean(process.env.VERCEL);
 const UPLOAD_MODE = String(process.env.UPLOAD_MODE || (IS_VERCEL_RUNTIME ? "inline" : "disk")).toLowerCase();
 const PROFILE_DB_PATH = IS_VERCEL_RUNTIME ? path.join("/tmp", "etherpump-profiles.json") : path.join(ROOT, "cache", "profiles.json");
+const MONGODB_URI = String(process.env.MONGODB_URI || "").trim();
+const MONGODB_DB_NAME = String(process.env.MONGODB_DB_NAME || "etherpump").trim();
+const MONGODB_PROFILE_COLLECTION = String(process.env.MONGODB_PROFILE_COLLECTION || "user_profiles").trim();
+const PROFILE_IMAGE_URI_MAX_LENGTH = 2 * 1024 * 1024;
 // Vercel runtime filesystem is ephemeral/read-only for project paths. Force inline mode there.
 const USE_DISK_UPLOADS = !IS_VERCEL_RUNTIME && UPLOAD_MODE !== "inline";
 
@@ -86,6 +90,7 @@ const dexTokenCache = new Map();
 const geckoIndexedSticky = new Set();
 const pairTradesCache = new Map();
 let profileDbCache = null;
+let mongoProfileCollectionPromise = null;
 
 function getCachedValue(cache, key) {
   const row = cache.get(key);
@@ -396,7 +401,7 @@ function sanitizeProfileValue(address, value = {}) {
     address: safeAddress,
     username: usernameRaw || defaultUsername(safeAddress),
     bio: bioRaw.slice(0, 500),
-    imageUri: imageRaw.slice(0, 2048)
+    imageUri: imageRaw.slice(0, PROFILE_IMAGE_URI_MAX_LENGTH)
   };
 }
 
@@ -428,7 +433,7 @@ function writeProfileDb(store) {
   profileDbCache = store;
 }
 
-function getPersistedProfile(address) {
+function getPersistedProfileSync(address) {
   const normalized = normalizeAddress(address);
   if (!normalized) {
     return sanitizeProfileValue("", {});
@@ -439,18 +444,18 @@ function getPersistedProfile(address) {
   return sanitizeProfileValue(normalized, row);
 }
 
-function getPersistedProfiles(addresses = []) {
+function getPersistedProfilesSync(addresses = []) {
   const out = {};
   for (const raw of addresses) {
     const normalized = normalizeAddress(raw);
     if (!normalized) continue;
     const key = normalized.toLowerCase();
-    out[key] = getPersistedProfile(normalized);
+    out[key] = getPersistedProfileSync(normalized);
   }
   return out;
 }
 
-function setPersistedProfile(address, value = {}) {
+function setPersistedProfileSync(address, value = {}) {
   const normalized = normalizeAddress(address);
   if (!normalized) {
     throw new Error("Invalid address");
@@ -460,6 +465,101 @@ function setPersistedProfile(address, value = {}) {
   store[key] = sanitizeProfileValue(normalized, value);
   writeProfileDb(store);
   return store[key];
+}
+
+async function getMongoProfileCollection() {
+  if (!MONGODB_URI) return null;
+  if (!mongoProfileCollectionPromise) {
+    mongoProfileCollectionPromise = (async () => {
+      try {
+        const { MongoClient } = require("mongodb");
+        const client = new MongoClient(MONGODB_URI, {
+          serverSelectionTimeoutMS: 4000,
+          maxPoolSize: 4
+        });
+        await client.connect();
+        const db = client.db(MONGODB_DB_NAME || "etherpump");
+        return db.collection(MONGODB_PROFILE_COLLECTION || "user_profiles");
+      } catch {
+        return null;
+      }
+    })();
+  }
+  return mongoProfileCollectionPromise;
+}
+
+async function getPersistedProfile(address) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) return sanitizeProfileValue("", {});
+
+  const mongo = await getMongoProfileCollection();
+  if (mongo) {
+    try {
+      const key = normalized.toLowerCase();
+      const row = await mongo.findOne({ _id: key });
+      if (row) {
+        return sanitizeProfileValue(normalized, row);
+      }
+    } catch {
+      // fall through to file
+    }
+  }
+
+  return getPersistedProfileSync(normalized);
+}
+
+async function getPersistedProfiles(addresses = []) {
+  const normalized = [...new Set((Array.isArray(addresses) ? addresses : []).map((row) => normalizeAddress(row)).filter(Boolean))];
+  if (!normalized.length) return {};
+
+  const mongo = await getMongoProfileCollection();
+  if (mongo) {
+    try {
+      const keys = normalized.map((row) => row.toLowerCase());
+      const rows = await mongo.find({ _id: { $in: keys } }).toArray();
+      const byId = new Map(rows.map((row) => [String(row?._id || "").toLowerCase(), row]));
+      const out = {};
+      for (const address of normalized) {
+        const key = address.toLowerCase();
+        out[key] = sanitizeProfileValue(address, byId.get(key) || {});
+      }
+      return out;
+    } catch {
+      // fall through to file
+    }
+  }
+
+  return getPersistedProfilesSync(normalized);
+}
+
+async function setPersistedProfile(address, value = {}) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) throw new Error("Invalid address");
+  const key = normalized.toLowerCase();
+  const next = sanitizeProfileValue(normalized, value);
+
+  const mongo = await getMongoProfileCollection();
+  if (mongo) {
+    try {
+      await mongo.updateOne(
+        { _id: key },
+        {
+          $set: {
+            address: next.address,
+            username: next.username,
+            bio: next.bio,
+            imageUri: next.imageUri
+          }
+        },
+        { upsert: true }
+      );
+      return next;
+    } catch {
+      // fall through to file
+    }
+  }
+
+  return setPersistedProfileSync(normalized, next);
 }
 
 function clearProfileDependentCaches() {
@@ -1353,7 +1453,7 @@ app.get("/api/launches", async (req, res) => {
           ...launch,
           tokenAddress: launch.token,
           poolAddress: launch.pool,
-          creatorProfile: getPersistedProfile(launch.creator),
+          creatorProfile: await getPersistedProfile(launch.creator),
           pool
         };
       });
@@ -1404,9 +1504,9 @@ app.post("/api/upload-image", async (req, res) => {
   }
 });
 
-app.get("/api/user-profile/:address", (req, res) => {
+app.get("/api/user-profile/:address", async (req, res) => {
   try {
-    const profile = getPersistedProfile(req.params.address);
+    const profile = await getPersistedProfile(req.params.address);
     if (!profile.address) {
       return res.status(400).json({ error: "Invalid address" });
     }
@@ -1416,9 +1516,9 @@ app.get("/api/user-profile/:address", (req, res) => {
   }
 });
 
-app.post("/api/user-profile/:address", (req, res) => {
+app.post("/api/user-profile/:address", async (req, res) => {
   try {
-    const profile = setPersistedProfile(req.params.address, req.body || {});
+    const profile = await setPersistedProfile(req.params.address, req.body || {});
     clearProfileDependentCaches();
     res.json(profile);
   } catch (error) {
@@ -1428,11 +1528,11 @@ app.post("/api/user-profile/:address", (req, res) => {
   }
 });
 
-app.post("/api/user-profiles", (req, res) => {
+app.post("/api/user-profiles", async (req, res) => {
   try {
     const addressesRaw = Array.isArray(req.body?.addresses) ? req.body.addresses : [];
     const limited = addressesRaw.slice(0, 200);
-    const profiles = getPersistedProfiles(limited);
+    const profiles = await getPersistedProfiles(limited);
     res.json({ profiles });
   } catch (error) {
     res.status(500).json({ error: error.message || "Failed to load profiles" });
@@ -1577,7 +1677,7 @@ app.get("/api/token/:token", async (req, res) => {
           ...launch,
           tokenAddress: launch.token,
           poolAddress: launch.pool,
-          creatorProfile: getPersistedProfile(launch.creator),
+          creatorProfile: await getPersistedProfile(launch.creator),
           pool,
           feeSnapshot
         },
@@ -1675,7 +1775,7 @@ app.get("/api/profile/:address", async (req, res) => {
           ...launch,
           tokenAddress: launch.token,
           poolAddress: launch.pool,
-          creatorProfile: getPersistedProfile(launch.creator),
+          creatorProfile: await getPersistedProfile(launch.creator),
           pool,
           feeSnapshot,
           holderBalance: balance.toString(),
@@ -1690,7 +1790,7 @@ app.get("/api/profile/:address", async (req, res) => {
           ...launch,
           tokenAddress: launch.token,
           poolAddress: launch.pool,
-          creatorProfile: getPersistedProfile(launch.creator),
+          creatorProfile: await getPersistedProfile(launch.creator),
           pool,
           holderBalance: balance.toString(),
           holderBalanceFloat: toFloat(balance)
@@ -1735,7 +1835,7 @@ app.get("/api/profile/:address", async (req, res) => {
 
     const payload = {
       address,
-      profile: getPersistedProfile(address),
+      profile: await getPersistedProfile(address),
       created,
       holdings,
       creatorRewardsTotalWei: creatorRewardsTotalWei.toString(),

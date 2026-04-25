@@ -312,10 +312,14 @@ function setupEditProfileModal() {
       return;
     }
 
-    await saveUserProfile(ws.address, { username, bio, imageUri: pendingProfileImageUri });
+    const saved = await saveUserProfile(ws.address, { username, bio, imageUri: pendingProfileImageUri });
     updateProfileIdentity();
     hideEditProfileModal();
-    setAlert(ui.alert, "Profile updated");
+    if (saved?.synced) {
+      setAlert(ui.alert, "Profile updated");
+    } else {
+      setAlert(ui.alert, "Profile saved locally, but cloud sync failed. Check backend env/API.", true);
+    }
   });
 }
 

@@ -3,6 +3,8 @@ import {
   defaultUsername,
   fetchEthUsdPrice,
   formatCompactUsd,
+  hydrateUserProfile,
+  hydrateUserProfiles,
   loadUserProfile,
   parseUiError,
   resolveCoinImage,
@@ -391,14 +393,29 @@ function updateProfileIdentity() {
   if (ui.menuLogoutBtn) {
     ui.menuLogoutBtn.textContent = connected ? "Log out" : "Connect wallet";
   }
+
+  if (connected) {
+    const currentAddress = String(ws.address || "");
+    hydrateUserProfile(currentAddress).then(() => {
+      const nextWs = walletState();
+      if (String(nextWs.address || "").toLowerCase() !== currentAddress.toLowerCase()) return;
+      const fresh = loadUserProfile(currentAddress);
+      if (fresh.username !== name || String(fresh.imageUri || "") !== String(imageUri || "")) {
+        updateProfileIdentity();
+      }
+    }).catch(() => {
+      // ignore profile hydration failures
+    });
+  }
 }
 
-function openEditProfileModal() {
+async function openEditProfileModal() {
   const ws = walletState();
   if (!ws.address) {
     setAlert(ui.alert, "Connect wallet first", true);
     return;
   }
+  await hydrateUserProfile(ws.address, { force: true });
   const profile = loadUserProfile(ws.address);
   if (ui.editUsername) ui.editUsername.value = profile.username || defaultUsername(ws.address);
   if (ui.editBio) ui.editBio.value = profile.bio || "";
@@ -521,7 +538,7 @@ function setupEditProfileModal() {
     updateEditAvatarPreview(text || "EP", state.pendingProfileImageUri);
   });
 
-  ui.saveEditProfileBtn?.addEventListener("click", () => {
+  ui.saveEditProfileBtn?.addEventListener("click", async () => {
     const ws = walletState();
     if (!ws.address) {
       setAlert(ui.alert, "Connect wallet first", true);
@@ -533,7 +550,7 @@ function setupEditProfileModal() {
       setAlert(ui.alert, "Username is required", true);
       return;
     }
-    saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
+    await saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
     updateProfileIdentity();
     renderTrending();
     renderExplore();
@@ -581,6 +598,7 @@ function setupInteractions() {
 async function refreshLaunches() {
   const launchesRes = await api.launches(80, 0);
   state.launches = launchesRes.launches || [];
+  await hydrateUserProfiles(state.launches.map((launch) => launch.creator));
   renderTrending();
   renderExplore();
 }

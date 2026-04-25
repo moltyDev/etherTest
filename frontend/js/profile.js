@@ -6,6 +6,8 @@ import {
   ethers,
   formatCompactUsd,
   formatToken,
+  hydrateUserProfile,
+  hydrateUserProfiles,
   loadUserProfile,
   makeTokenContract,
   parseUiError,
@@ -219,6 +221,23 @@ function updateProfileIdentity() {
 
   if (ui.menuLogoutBtn) {
     ui.menuLogoutBtn.textContent = connected ? "Log out" : "Connect wallet";
+  }
+
+  if (connected) {
+    const currentAddress = String(ws.address || "");
+    hydrateUserProfile(currentAddress).then(() => {
+      const next = walletState();
+      if (String(next.address || "").toLowerCase() !== currentAddress.toLowerCase()) return;
+      const fresh = loadUserProfile(currentAddress);
+      if (fresh.username !== username || String(fresh.imageUri || "") !== String(imageUri || "")) {
+        updateProfileIdentity();
+        if (state.address && normalizeAddress(state.address) === normalizeAddress(currentAddress)) {
+          renderProfileHeader(currentAddress);
+        }
+      }
+    }).catch(() => {
+      // ignore profile hydration failures
+    });
   }
 }
 
@@ -725,6 +744,20 @@ async function loadProfile(address) {
   state.address = normalized;
   updateQuery(normalized);
   const payload = await api.profile(normalized);
+  const relatedAddresses = new Set([normalized]);
+  for (const row of payload?.created || []) {
+    if (row?.creator) relatedAddresses.add(row.creator);
+  }
+  for (const row of payload?.holdings || []) {
+    if (row?.creator) relatedAddresses.add(row.creator);
+  }
+  for (const row of payload?.followers || []) {
+    if (row?.address) relatedAddresses.add(row.address);
+  }
+  for (const row of payload?.following || []) {
+    if (row?.address) relatedAddresses.add(row.address);
+  }
+  await hydrateUserProfiles([...relatedAddresses], { force: true });
   state.payload = payload;
   state.socialLoaded = Boolean(payload.socialIncluded);
   state.socialLoading = false;
@@ -740,13 +773,14 @@ async function loadConfig() {
   ui.factoryChip.textContent = shortAddress(cfg.factoryAddress);
 }
 
-function openEditProfileModal() {
+async function openEditProfileModal() {
   const ws = walletState();
   if (!ws.address) {
     setAlert(ui.alert, "Connect wallet first", true);
     return;
   }
 
+  await hydrateUserProfile(ws.address, { force: true });
   const profile = loadUserProfile(ws.address);
   if (ui.editUsername) ui.editUsername.value = profile.username || defaultUsername(ws.address);
   if (ui.editBio) ui.editBio.value = profile.bio || "";
@@ -800,7 +834,7 @@ function setupEditProfileModal() {
     updateEditAvatarPreview(text || "EP", state.pendingProfileImageUri);
   });
 
-  ui.saveEditProfileBtn?.addEventListener("click", () => {
+  ui.saveEditProfileBtn?.addEventListener("click", async () => {
     const ws = walletState();
     if (!ws.address) {
       setAlert(ui.alert, "Connect wallet first", true);
@@ -814,7 +848,7 @@ function setupEditProfileModal() {
       return;
     }
 
-    saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
+    await saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
     updateProfileIdentity();
     if (normalizeAddress(state.address) === normalizeAddress(ws.address)) {
       renderProfileHeader(ws.address);

@@ -62,5 +62,8 @@ export const api = {
     const qs = params.toString();
     return apiGet(`/api/profile/${address}${qs ? `?${qs}` : ""}`);
   },
+  userProfile: (address) => apiGet(`/api/user-profile/${address}`),
+  userProfiles: (addresses = []) => apiPost("/api/user-profiles", { addresses }),
+  saveUserProfile: (address, body = {}) => apiPost(`/api/user-profile/${address}`, body),
   uploadImage: (dataUrl) => apiPost("/api/upload-image", { dataUrl })
 };

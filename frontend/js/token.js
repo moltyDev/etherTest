@@ -8,6 +8,8 @@ import {
   formatCompactUsd,
   formatEth,
   formatToken,
+  hydrateUserProfile,
+  hydrateUserProfiles,
   loadUserProfile,
   makeRouterContract,
   makeTokenContract,
@@ -598,6 +600,21 @@ function updateProfileIdentity() {
   if (ui.menuLogoutBtn) {
     ui.menuLogoutBtn.textContent = connected ? "Log out" : "Connect wallet";
   }
+
+  if (connected) {
+    const currentAddress = String(ws.address || "");
+    hydrateUserProfile(currentAddress).then(() => {
+      const next = walletState();
+      if (String(next.address || "").toLowerCase() !== currentAddress.toLowerCase()) return;
+      const fresh = loadUserProfile(currentAddress);
+      if (fresh.username !== username || String(fresh.imageUri || "") !== String(imageUri || "")) {
+        updateProfileIdentity();
+        if (state.launch) setTokenHeader(state.launch);
+      }
+    }).catch(() => {
+      // ignore profile hydration failures
+    });
+  }
 }
 
 function hideEditProfileModal() {
@@ -606,12 +623,13 @@ function hideEditProfileModal() {
   ui.editProfileModal.setAttribute("aria-hidden", "true");
 }
 
-function openEditProfileModal() {
+async function openEditProfileModal() {
   const ws = walletState();
   if (!ws.address) {
     setAlert(ui.alert, "Connect wallet first", true);
     return;
   }
+  await hydrateUserProfile(ws.address, { force: true });
   const profile = loadUserProfile(ws.address);
   if (ui.editUsername) ui.editUsername.value = profile.username || defaultUsername(ws.address);
   if (ui.editBio) ui.editBio.value = profile.bio || "";
@@ -729,7 +747,7 @@ function setupEditProfileModal() {
     updateEditAvatarPreview(text || "EP", state.pendingProfileImageUri);
   });
 
-  ui.saveEditProfileBtn?.addEventListener("click", () => {
+  ui.saveEditProfileBtn?.addEventListener("click", async () => {
     const ws = walletState();
     if (!ws.address) {
       setAlert(ui.alert, "Connect wallet first", true);
@@ -741,7 +759,7 @@ function setupEditProfileModal() {
       setAlert(ui.alert, "Username is required", true);
       return;
     }
-    saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
+    await saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
     updateProfileIdentity();
     if (state.launch?.creator?.toLowerCase() === ws.address.toLowerCase()) {
       setTokenHeader(state.launch);
@@ -1519,6 +1537,9 @@ async function onClaimCreatorRewards() {
 async function loadTokenPage(forceFresh = false, lite = false) {
   if (!state.token) throw new Error("Missing token query parameter");
   const payload = await api.token(state.token, { fresh: forceFresh, lite });
+  if (payload?.launch?.creator) {
+    await hydrateUserProfiles([payload.launch.creator], { force: forceFresh });
+  }
   state.launch = payload.launch;
   state.trades = mergeTradesWithOptimistic(payload.trades || []);
   if (Array.isArray(payload.topHolders)) {

@@ -56,10 +56,13 @@ const providerIds = new WeakMap();
 let providerIdCounter = 0;
 const WALLET_SESSION_KEY = "etherpump.wallet.session.v1";
 const PROFILE_STORAGE_KEY = "etherpump.profile.v1";
+const PROFILE_REMOTE_FRESH_KEY = "etherpump.profile.remotefresh.v1";
 const ETH_USD_CACHE_KEY = "etherpump.ethusd.v1";
 const CHAIN_PREFERENCE_KEY = "etherpump.chain.preferred.v1";
 const ETH_USD_FALLBACK = 3000;
 const ETH_USD_CACHE_TTL_MS = 5 * 60 * 1000;
+const PROFILE_REMOTE_TTL_MS = 60 * 1000;
+const profileInFlight = new Map();
 
 export function getPreferredChainId() {
   try {
@@ -576,29 +579,202 @@ function saveProfilesStore(store) {
   }
 }
 
-export function loadUserProfile(address) {
-  if (!address) return { username: "Guest", bio: "", imageUri: "" };
-  const store = loadProfilesStore();
-  const key = String(address).toLowerCase();
-  const row = store[key] || {};
+function loadProfileFreshStore() {
+  try {
+    const raw = localStorage.getItem(PROFILE_REMOTE_FRESH_KEY);
+    const parsed = JSON.parse(raw || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // ignore corrupt timestamp cache
+  }
+  return {};
+}
+
+function saveProfileFreshStore(store) {
+  try {
+    localStorage.setItem(PROFILE_REMOTE_FRESH_KEY, JSON.stringify(store));
+  } catch {
+    // ignore storage write failures
+  }
+}
+
+function normalizeProfileAddress(address) {
+  try {
+    return ethers.getAddress(String(address || "").trim());
+  } catch {
+    return "";
+  }
+}
+
+function normalizeProfileValue(address, value = {}) {
+  const normalized = normalizeProfileAddress(address);
+  const username = String(value.username || "").trim();
+  const bio = String(value.bio || "").trim();
+  const imageUri = String(value.imageUri || "").trim();
   return {
-    username: String(row.username || defaultUsername(address)),
-    bio: String(row.bio || ""),
-    imageUri: String(row.imageUri || "")
+    address: normalized,
+    username: username || defaultUsername(normalized),
+    bio: bio.slice(0, 500),
+    imageUri: imageUri.slice(0, 2048)
   };
 }
 
-export function saveUserProfile(address, value = {}) {
-  if (!address) return;
-  const existing = loadUserProfile(address);
+function markProfileFresh(address) {
+  const normalized = normalizeProfileAddress(address);
+  if (!normalized) return;
+  const store = loadProfileFreshStore();
+  store[normalized.toLowerCase()] = Date.now();
+  saveProfileFreshStore(store);
+}
+
+function isProfileFresh(address, ttlMs = PROFILE_REMOTE_TTL_MS) {
+  const normalized = normalizeProfileAddress(address);
+  if (!normalized) return false;
+  const store = loadProfileFreshStore();
+  const freshAt = Number(store[normalized.toLowerCase()] || 0);
+  if (!Number.isFinite(freshAt) || freshAt <= 0) return false;
+  return Date.now() - freshAt < ttlMs;
+}
+
+function withPreferredChain(path) {
+  const chainId = getPreferredChainId();
+  if (!chainId) return path;
+  return `${path}${path.includes("?") ? "&" : "?"}chainId=${chainId}`;
+}
+
+async function profileApiGet(path) {
+  const res = await fetch(withPreferredChain(path), { cache: "no-store" });
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      message = body.error || message;
+    } catch {
+      // ignore parse failures
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+async function profileApiPost(path, body) {
+  const res = await fetch(withPreferredChain(path), {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(body || {})
+  });
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const payload = await res.json();
+      message = payload.error || message;
+    } catch {
+      // ignore parse failures
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+function cacheProfileLocal(address, value = {}) {
+  const normalized = normalizeProfileAddress(address);
+  if (!normalized) return { username: "Guest", bio: "", imageUri: "", address: "" };
   const store = loadProfilesStore();
-  const key = String(address).toLowerCase();
+  const key = normalized.toLowerCase();
+  const next = normalizeProfileValue(normalized, value);
   store[key] = {
-    username: String(value.username ?? existing.username ?? "").trim(),
-    bio: String(value.bio ?? existing.bio ?? "").trim(),
-    imageUri: String(value.imageUri ?? existing.imageUri ?? "").trim()
+    username: next.username,
+    bio: next.bio,
+    imageUri: next.imageUri
   };
   saveProfilesStore(store);
+  markProfileFresh(normalized);
+  return next;
+}
+
+export function loadUserProfile(address) {
+  if (!address) return { username: "Guest", bio: "", imageUri: "", address: "" };
+  const store = loadProfilesStore();
+  const normalized = normalizeProfileAddress(address);
+  if (!normalized) return { username: defaultUsername(address), bio: "", imageUri: "", address: "" };
+  const key = normalized.toLowerCase();
+  const row = store[key] || {};
+  return normalizeProfileValue(normalized, row);
+}
+
+export async function hydrateUserProfile(address, options = {}) {
+  const normalized = normalizeProfileAddress(address);
+  if (!normalized) return loadUserProfile(address);
+  const force = Boolean(options?.force);
+  if (!force && isProfileFresh(normalized)) {
+    return loadUserProfile(normalized);
+  }
+  const key = normalized.toLowerCase();
+  if (profileInFlight.has(key)) {
+    return profileInFlight.get(key);
+  }
+  const task = (async () => {
+    try {
+      const remote = await profileApiGet(`/api/user-profile/${normalized}`);
+      cacheProfileLocal(normalized, remote || {});
+      return loadUserProfile(normalized);
+    } catch {
+      return loadUserProfile(normalized);
+    } finally {
+      profileInFlight.delete(key);
+    }
+  })();
+  profileInFlight.set(key, task);
+  return task;
+}
+
+export async function hydrateUserProfiles(addresses = [], options = {}) {
+  const force = Boolean(options?.force);
+  const deduped = [...new Set((Array.isArray(addresses) ? addresses : []).map((row) => normalizeProfileAddress(row)).filter(Boolean))];
+  if (!deduped.length) return {};
+
+  const targets = force ? deduped : deduped.filter((address) => !isProfileFresh(address));
+  if (targets.length) {
+    try {
+      const payload = await profileApiPost("/api/user-profiles", { addresses: targets });
+      const rows = payload?.profiles && typeof payload.profiles === "object" ? payload.profiles : {};
+      for (const [key, value] of Object.entries(rows)) {
+        cacheProfileLocal(key, value || {});
+      }
+      for (const missed of targets) {
+        if (!rows[missed.toLowerCase()]) {
+          markProfileFresh(missed);
+        }
+      }
+    } catch {
+      await Promise.allSettled(targets.map((address) => hydrateUserProfile(address, { force: true })));
+    }
+  }
+
+  const out = {};
+  for (const address of deduped) {
+    out[address.toLowerCase()] = loadUserProfile(address);
+  }
+  return out;
+}
+
+export async function saveUserProfile(address, value = {}) {
+  const normalized = normalizeProfileAddress(address);
+  if (!normalized) return { username: "Guest", bio: "", imageUri: "", address: "" };
+  const existing = loadUserProfile(normalized);
+  const local = cacheProfileLocal(normalized, {
+    username: value.username ?? existing.username,
+    bio: value.bio ?? existing.bio,
+    imageUri: value.imageUri ?? existing.imageUri
+  });
+  try {
+    const remote = await profileApiPost(`/api/user-profile/${normalized}`, local);
+    return cacheProfileLocal(normalized, remote || local);
+  } catch {
+    return local;
+  }
 }
 
 async function getPendingNonce() {

@@ -4,6 +4,7 @@ import {
   defaultUsername,
   disconnectWallet,
   ethers,
+  hydrateUserProfile,
   loadUserProfile,
   makeFallbackImage,
   makeFactoryContract,
@@ -159,6 +160,20 @@ function updateProfileIdentity() {
   if (ui.menuLogoutBtn) {
     ui.menuLogoutBtn.textContent = connected ? "Log out" : "Connect wallet";
   }
+
+  if (connected) {
+    const currentAddress = String(ws.address || "");
+    hydrateUserProfile(currentAddress).then(() => {
+      const next = walletState();
+      if (String(next.address || "").toLowerCase() !== currentAddress.toLowerCase()) return;
+      const fresh = loadUserProfile(currentAddress);
+      if (fresh.username !== username || String(fresh.imageUri || "") !== String(imageUri || "")) {
+        updateProfileIdentity();
+      }
+    }).catch(() => {
+      // ignore profile hydration failures
+    });
+  }
 }
 
 function hideEditProfileModal() {
@@ -167,13 +182,14 @@ function hideEditProfileModal() {
   ui.editProfileModal.setAttribute("aria-hidden", "true");
 }
 
-function openEditProfileModal() {
+async function openEditProfileModal() {
   const ws = walletState();
   if (!ws.address) {
     setAlert(ui.alert, "Connect wallet first", true);
     return;
   }
 
+  await hydrateUserProfile(ws.address, { force: true });
   const profile = loadUserProfile(ws.address);
   if (ui.editUsername) ui.editUsername.value = profile.username || defaultUsername(ws.address);
   if (ui.editBio) ui.editBio.value = profile.bio || "";
@@ -281,7 +297,7 @@ function setupEditProfileModal() {
     updateEditAvatarPreview(text || "EP", pendingProfileImageUri);
   });
 
-  ui.saveEditProfileBtn?.addEventListener("click", () => {
+  ui.saveEditProfileBtn?.addEventListener("click", async () => {
     const ws = walletState();
     if (!ws.address) {
       setAlert(ui.alert, "Connect wallet first", true);
@@ -296,7 +312,7 @@ function setupEditProfileModal() {
       return;
     }
 
-    saveUserProfile(ws.address, { username, bio, imageUri: pendingProfileImageUri });
+    await saveUserProfile(ws.address, { username, bio, imageUri: pendingProfileImageUri });
     updateProfileIdentity();
     hideEditProfileModal();
     setAlert(ui.alert, "Profile updated");

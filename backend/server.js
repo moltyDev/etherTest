@@ -16,6 +16,7 @@ const DEPLOYMENT_PATH = path.join(FRONTEND_DIR, "deployment.json");
 const UPLOADS_DIR = path.join(FRONTEND_DIR, "uploads");
 const IS_VERCEL_RUNTIME = Boolean(process.env.VERCEL);
 const UPLOAD_MODE = String(process.env.UPLOAD_MODE || (IS_VERCEL_RUNTIME ? "inline" : "disk")).toLowerCase();
+const PROFILE_DB_PATH = IS_VERCEL_RUNTIME ? path.join("/tmp", "etherpump-profiles.json") : path.join(ROOT, "cache", "profiles.json");
 // Vercel runtime filesystem is ephemeral/read-only for project paths. Force inline mode there.
 const USE_DISK_UPLOADS = !IS_VERCEL_RUNTIME && UPLOAD_MODE !== "inline";
 
@@ -84,6 +85,7 @@ const geckoTradesCache = new Map();
 const dexTokenCache = new Map();
 const geckoIndexedSticky = new Set();
 const pairTradesCache = new Map();
+let profileDbCache = null;
 
 function getCachedValue(cache, key) {
   const row = cache.get(key);
@@ -376,6 +378,94 @@ function normalizeAddress(input) {
   } catch {
     return null;
   }
+}
+
+function defaultUsername(address) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) return "Guest";
+  return `eth_${normalized.slice(2, 8).toLowerCase()}`;
+}
+
+function sanitizeProfileValue(address, value = {}) {
+  const normalized = normalizeAddress(address);
+  const safeAddress = normalized || "";
+  const usernameRaw = String(value.username || "").trim();
+  const bioRaw = String(value.bio || "").trim();
+  const imageRaw = String(value.imageUri || "").trim();
+  return {
+    address: safeAddress,
+    username: usernameRaw || defaultUsername(safeAddress),
+    bio: bioRaw.slice(0, 500),
+    imageUri: imageRaw.slice(0, 2048)
+  };
+}
+
+function readProfileDb() {
+  if (profileDbCache && typeof profileDbCache === "object") {
+    return profileDbCache;
+  }
+
+  try {
+    if (fs.existsSync(PROFILE_DB_PATH)) {
+      const raw = fs.readFileSync(PROFILE_DB_PATH, "utf8");
+      const parsed = JSON.parse(raw || "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        profileDbCache = parsed;
+        return profileDbCache;
+      }
+    }
+  } catch {
+    // fall through to empty store
+  }
+
+  profileDbCache = {};
+  return profileDbCache;
+}
+
+function writeProfileDb(store) {
+  fs.mkdirSync(path.dirname(PROFILE_DB_PATH), { recursive: true });
+  fs.writeFileSync(PROFILE_DB_PATH, JSON.stringify(store, null, 2));
+  profileDbCache = store;
+}
+
+function getPersistedProfile(address) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) {
+    return sanitizeProfileValue("", {});
+  }
+  const store = readProfileDb();
+  const key = normalized.toLowerCase();
+  const row = store[key] || {};
+  return sanitizeProfileValue(normalized, row);
+}
+
+function getPersistedProfiles(addresses = []) {
+  const out = {};
+  for (const raw of addresses) {
+    const normalized = normalizeAddress(raw);
+    if (!normalized) continue;
+    const key = normalized.toLowerCase();
+    out[key] = getPersistedProfile(normalized);
+  }
+  return out;
+}
+
+function setPersistedProfile(address, value = {}) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) {
+    throw new Error("Invalid address");
+  }
+  const store = readProfileDb();
+  const key = normalized.toLowerCase();
+  store[key] = sanitizeProfileValue(normalized, value);
+  writeProfileDb(store);
+  return store[key];
+}
+
+function clearProfileDependentCaches() {
+  launchesCache.clear();
+  tokenCache.clear();
+  profileCache.clear();
 }
 
 function isZeroAddress(input) {
@@ -1263,6 +1353,7 @@ app.get("/api/launches", async (req, res) => {
           ...launch,
           tokenAddress: launch.token,
           poolAddress: launch.pool,
+          creatorProfile: getPersistedProfile(launch.creator),
           pool
         };
       });
@@ -1310,6 +1401,41 @@ app.post("/api/upload-image", async (req, res) => {
     res.json({ url: `/uploads/${filename}` });
   } catch (error) {
     res.status(500).json({ error: error.message || "Failed to upload image" });
+  }
+});
+
+app.get("/api/user-profile/:address", (req, res) => {
+  try {
+    const profile = getPersistedProfile(req.params.address);
+    if (!profile.address) {
+      return res.status(400).json({ error: "Invalid address" });
+    }
+    res.json(profile);
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to load profile" });
+  }
+});
+
+app.post("/api/user-profile/:address", (req, res) => {
+  try {
+    const profile = setPersistedProfile(req.params.address, req.body || {});
+    clearProfileDependentCaches();
+    res.json(profile);
+  } catch (error) {
+    const text = String(error?.message || "");
+    const status = text.toLowerCase().includes("invalid address") ? 400 : 500;
+    res.status(status).json({ error: text || "Failed to save profile" });
+  }
+});
+
+app.post("/api/user-profiles", (req, res) => {
+  try {
+    const addressesRaw = Array.isArray(req.body?.addresses) ? req.body.addresses : [];
+    const limited = addressesRaw.slice(0, 200);
+    const profiles = getPersistedProfiles(limited);
+    res.json({ profiles });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to load profiles" });
   }
 });
 
@@ -1451,6 +1577,7 @@ app.get("/api/token/:token", async (req, res) => {
           ...launch,
           tokenAddress: launch.token,
           poolAddress: launch.pool,
+          creatorProfile: getPersistedProfile(launch.creator),
           pool,
           feeSnapshot
         },
@@ -1548,6 +1675,7 @@ app.get("/api/profile/:address", async (req, res) => {
           ...launch,
           tokenAddress: launch.token,
           poolAddress: launch.pool,
+          creatorProfile: getPersistedProfile(launch.creator),
           pool,
           feeSnapshot,
           holderBalance: balance.toString(),
@@ -1562,6 +1690,7 @@ app.get("/api/profile/:address", async (req, res) => {
           ...launch,
           tokenAddress: launch.token,
           poolAddress: launch.pool,
+          creatorProfile: getPersistedProfile(launch.creator),
           pool,
           holderBalance: balance.toString(),
           holderBalanceFloat: toFloat(balance)
@@ -1606,6 +1735,7 @@ app.get("/api/profile/:address", async (req, res) => {
 
     const payload = {
       address,
+      profile: getPersistedProfile(address),
       created,
       holdings,
       creatorRewardsTotalWei: creatorRewardsTotalWei.toString(),

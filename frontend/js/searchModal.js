@@ -1,5 +1,5 @@
 import { api } from "./api.js";
-import { defaultUsername, fetchEthUsdPrice, formatCompactUsd, loadUserProfile, resolveCoinImage, weiToUsd } from "./core.js";
+import { defaultUsername, fetchEthUsdPrice, formatCompactUsd, hydrateUserProfiles, loadUserProfile, resolveCoinImage, weiToUsd } from "./core.js";
 
 const RECENT_SEARCHES_KEY = "etherpump.search.recent.v1";
 const RECENT_VIEWED_KEY = "etherpump.search.viewed.v1";
@@ -417,6 +417,7 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
       const [ethUsd, launchesRes] = await Promise.all([fetchEthUsdPrice(false), api.launches(120, 0)]);
       if (Number.isFinite(ethUsd) && ethUsd > 0) state.ethUsd = ethUsd;
       state.launches = launchesRes?.launches || [];
+      await hydrateUserProfiles(state.launches.map((launch) => launch.creator));
       state.loaded = true;
       renderBody();
     } catch {

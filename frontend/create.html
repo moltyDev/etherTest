@@ -1,0 +1,403 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>Etherpump.fun | Create</title>
+    <link rel="icon" type="image/png" href="/assets/favicon.png?v=20260423c" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/assets/site.css?v=20260425c" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar">
+        <div class="sidebar-top">
+          <a class="logo" href="/">
+            <img class="logo-mark" src="/assets/etherpump-logo.png?v=20260423c" alt="Etherpump logo" />
+            <span class="logo-title">
+              <span class="logo-name">Etherpump</span><span class="logo-sep">.</span><span class="logo-tld">fun</span>
+            </span>
+          </a>
+          <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">
+            <svg viewBox="0 0 20 12" aria-hidden="true">
+              <rect x="1.5" y="1" width="1.5" height="10" rx="0.75"></rect>
+              <rect x="17" y="1" width="1.5" height="10" rx="0.75"></rect>
+              <path d="M11.2 3.2L8.2 6l3 2.8"></path>
+            </svg>
+          </button>
+        </div>
+        <nav class="side-nav">
+          <a class="side-link side-link-home" href="/">
+            <span class="side-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 10.5L12 3l9 7.5"></path>
+                <path d="M5.5 9.8V21h13V9.8"></path>
+              </svg>
+            </span>
+            <span class="side-link-label">Home</span>
+          </a>
+          <a class="side-link side-link-profile" id="profileNavSide" href="/profile">
+            <span class="side-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8.2" r="3.7"></circle>
+                <path d="M4.6 20c1.8-3.9 4.4-5.9 7.4-5.9s5.6 2 7.4 5.9"></path>
+              </svg>
+            </span>
+            <span class="side-link-label">Profile</span>
+          </a>
+          <a class="side-link" href="https://dexscreener.com/" target="_blank" rel="noreferrer noopener">
+            <span class="side-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h16"></path>
+                <path d="M7 7v10"></path>
+                <path d="M17 7v10"></path>
+                <path d="M4 17h16"></path>
+              </svg>
+            </span>
+            <span class="side-link-label">Terminal</span>
+          </a>
+        </nav>
+        <a class="side-create-btn active" href="/create">Create</a>
+        <div class="side-footer">
+          <span id="networkChip">Chain -</span>
+          <span id="factoryChip">Factory -</span>
+        </div>
+      </aside>
+
+      <main class="main-pane">
+        <div class="promo-strip">Launch instantly to Uniswap on Ethereum.</div>
+
+        <header class="topbar create-topbar">
+          <div class="create-searchbar">
+            <a href="/" class="create-back-btn" aria-label="Back to home">&larr;</a>
+            <input placeholder="Search for coins..." />
+          </div>
+          <div class="top-actions">
+            <a class="btn-ghost top-action-btn" href="/create">+ Create</a>
+            <button id="signInBtn" class="btn-primary top-action-btn sign-in-btn" type="button">Sign in</button>
+            <div class="wallet-hub-wrap">
+              <button id="walletHubBtn" class="wallet-hub-trigger" style="display:none" type="button" aria-expanded="false" aria-controls="walletHubMenu">
+                <span class="wallet-hub-dot" aria-hidden="true"></span>
+                <span id="walletHubBalance">$0.00</span>
+                <span class="wallet-hub-caret">v</span>
+              </button>
+              <div id="walletHubMenu" class="wallet-hub-menu" role="menu">
+                <p class="wallet-hub-label">YOUR BALANCE</p>
+                <h3 id="walletHubBalanceLarge">$0.00</h3>
+                <p class="wallet-hub-sub"><span id="walletHubNative">0 ETH</span> Available</p>
+                <button id="walletHubAddressBtn" class="wallet-hub-address" type="button">Not connected</button>
+                <div class="wallet-hub-grid">
+                  <button id="walletHubDepositBtn" class="wallet-hub-card" type="button">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M12 3v10"></path>
+                        <path d="M8.5 9.5L12 13l3.5-3.5"></path>
+                        <path d="M4 17h16"></path>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>Deposit</strong>
+                      <span>Crypto transfer</span>
+                    </span>
+                  </button>
+                  <a id="walletHubTradeLink" class="wallet-hub-card" href="/">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M4 7h12"></path>
+                        <path d="M13 4l3 3-3 3"></path>
+                        <path d="M20 17H8"></path>
+                        <path d="M11 14l-3 3 3 3"></path>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>Trade</strong>
+                      <span>Browse coins</span>
+                    </span>
+                  </a>
+                  <a id="walletHubBuyLink" class="wallet-hub-card" href="https://www.moonpay.com/buy/eth" target="_blank" rel="noreferrer noopener">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <rect x="3" y="6" width="18" height="12" rx="2"></rect>
+                        <path d="M3 10h18"></path>
+                        <circle cx="8" cy="14" r="1"></circle>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>Buy crypto</strong>
+                      <span>Card / bank</span>
+                    </span>
+                  </a>
+                  <a id="walletHubHistoryLink" class="wallet-hub-card" href="/profile">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="8"></circle>
+                        <path d="M12 8v4l2.5 2.5"></path>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>History</strong>
+                      <span>All activity</span>
+                    </span>
+                  </a>
+                </div>
+              </div>
+            </div>
+            <button id="profileMenuBtn" class="profile-trigger" style="display:none" type="button" aria-expanded="false" aria-controls="profileMenu">
+              <span class="profile-avatar" id="profileAvatar">EP</span>
+              <span class="profile-name" id="profileMenuName">Guest</span>
+              <span class="profile-chevron">v</span>
+            </button>
+            <div id="profileMenu" class="profile-menu">
+              <div class="profile-menu-header">
+                <span class="profile-avatar large" id="profileAvatarLarge">EP</span>
+                <div class="profile-menu-identity">
+                  <div class="profile-menu-name-row">
+                    <strong id="profileMenuNameLarge">Guest</strong>
+                    <button id="profileShareBtn" class="profile-menu-share" type="button" aria-label="Share profile link" title="Share profile">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14 4h6v6"></path>
+                        <path d="M20 4l-9.5 9.5"></path>
+                        <path d="M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"></path>
+                      </svg>
+                    </button>
+                  </div>
+                  <small id="profileMenuMeta">0 followers</small>
+                </div>
+              </div>
+              <div class="profile-menu-wallet profile-menu-wallet-hidden">
+                <div class="profile-wallet-actions">
+                  <button id="connectBtn" class="btn-primary" type="button">Connect</button>
+                  <button id="disconnectBtn" class="btn-ghost" type="button">Disconnect</button>
+                </div>
+                <select id="walletChoice" hidden aria-hidden="true" tabindex="-1"></select>
+              </div>
+              <a class="profile-menu-link profile-menu-item" id="profileNav" href="/profile">
+                <span class="profile-menu-item-left">
+                  <span class="profile-menu-item-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="8.2" r="3.7"></circle>
+                      <path d="M4.6 20c1.8-3.9 4.4-5.9 7.4-5.9s5.6 2 7.4 5.9"></path>
+                    </svg>
+                  </span>
+                  <span>View profile</span>
+                </span>
+                <span class="profile-menu-item-arrow">></span>
+              </a>
+              <button class="profile-menu-link profile-menu-btn profile-menu-item" id="editProfileBtn" type="button">
+                <span class="profile-menu-item-left">
+                  <span class="profile-menu-item-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M4 20h4l10.2-10.2a1.8 1.8 0 0 0 0-2.5l-1.5-1.5a1.8 1.8 0 0 0-2.5 0L4 16v4"></path>
+                      <path d="M12.4 7.6l4 4"></path>
+                    </svg>
+                  </span>
+                  <span>Edit profile</span>
+                </span>
+                <span class="profile-menu-item-arrow">></span>
+              </button>
+              <button class="profile-menu-link profile-menu-btn profile-menu-item profile-menu-item-danger" id="menuLogoutBtn" type="button">Log out</button>
+            </div>
+          </div>
+        </header>
+
+        <section class="content-section">
+          <div class="create-grid">
+            <form id="createForm" class="create-form create-form-pump">
+              <div class="create-intro">
+                <h2>Create new coin</h2>
+                <h3>Coin details</h3>
+                <p class="create-subtle">Choose carefully, these can't be changed once the coin is created.</p>
+              </div>
+
+              <div class="form-grid two">
+                <label>
+                  Coin name
+                  <input id="name" placeholder="Name your coin" required />
+                </label>
+                <label>
+                  Ticker
+                  <input id="symbol" placeholder="Add a coin ticker (e.g. DOGE)" maxlength="11" required />
+                </label>
+              </div>
+
+              <label>
+                Description (optional)
+                <textarea id="description" placeholder="Write a short description"></textarea>
+              </label>
+
+              <details class="create-socials">
+                <summary>Add social links (optional)</summary>
+                <div class="form-grid three">
+                  <label>
+                    Website
+                    <input id="website" placeholder="https://..." />
+                  </label>
+                  <label>
+                    Twitter
+                    <input id="twitter" placeholder="https://x.com/..." />
+                  </label>
+                  <label>
+                    Telegram
+                    <input id="telegram" placeholder="https://t.me/..." />
+                  </label>
+                </div>
+              </details>
+
+              <div class="create-upload-card" id="uploadDropzone">
+                <div class="create-upload-media" id="uploadMediaWrap">
+                  <img id="uploadPreviewImage" class="create-upload-preview-image" alt="Uploaded image preview" />
+                </div>
+                <div class="create-upload-copy" id="uploadCopy">
+                  <div class="create-upload-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" fill="none">
+                      <rect x="3" y="3" width="18" height="18" rx="2.5"></rect>
+                      <circle cx="16.25" cy="8.25" r="1.75"></circle>
+                      <path d="M5.5 17.5l4.5-4.5 2.5 2.5 3.5-3.5 2.5 2.5"></path>
+                    </svg>
+                  </div>
+                  <strong>Select video or image to upload</strong>
+                  <span>or drag and drop it here</span>
+                </div>
+                <button type="button" class="btn-primary small create-upload-select-btn" id="pickFileBtn">Select file</button>
+              </div>
+
+              <div class="create-upload-specs">
+                <article>
+                  <strong>File size and type</strong>
+                  <span>Image under 900 KB recommended</span>
+                  <span>PNG, JPG, GIF, WEBP, SVG</span>
+                </article>
+                <article>
+                  <strong>Resolution and aspect ratio</strong>
+                  <span>Image 1:1 recommended</span>
+                  <span>Banner 16:9 optional</span>
+                </article>
+              </div>
+
+              <details class="create-advanced">
+                <summary>Token economics and advanced fields</summary>
+                <div class="form-grid two">
+                  <label>
+                    Total supply
+                    <input id="supply" type="number" min="1" step="1" value="1000000000" required />
+                  </label>
+                  <label>
+                    Creator allocation % (max 20)
+                    <input id="creatorAllocation" type="number" min="0" max="20" step="0.1" value="5" required />
+                  </label>
+                </div>
+                <label>
+                  Initial Uniswap liquidity (ETH)
+                  <input id="devBuyEth" type="number" step="0.0001" min="0" placeholder="0.02" value="0.02" />
+                </label>
+                <label>
+                  Image URL (optional override)
+                  <input id="image" placeholder="https://... or data:image/..." />
+                </label>
+              </details>
+
+              <input id="imageFile" type="file" accept="image/*" hidden />
+
+              <div class="create-submit-row">
+                <button class="btn-primary" type="submit">Launch coin</button>
+                <a id="resultLink" class="result-link" href="#" style="display: none"></a>
+              </div>
+            </form>
+
+            <aside class="preview-card preview-card-create">
+              <h3>Preview</h3>
+              <div class="preview-media-wrap preview-portrait-wrap">
+                <img id="imagePreview" alt="Preview image" />
+              </div>
+              <p class="create-subtle">A preview of how the coin will look like</p>
+              <h4 id="previewName">Your Coin</h4>
+              <p id="previewSymbol">$TICKER</p>
+              <p id="previewDescription">Your coin description appears here.</p>
+            </aside>
+          </div>
+        </section>
+
+        <p id="alert" class="alert"></p>
+      </main>
+    </div>
+
+    <div id="depositModal" class="modal-overlay" aria-hidden="true">
+      <div class="modal-card deposit-modal-card">
+        <div class="edit-profile-head">
+          <h3>Deposit</h3>
+          <button id="depositCloseBtn" class="btn-ghost" type="button">X</button>
+        </div>
+        <p>Send ETH on Ethereum network to your wallet address.</p>
+        <div class="deposit-modal-grid">
+          <div>
+            <small class="muted">YOUR ETHEREUM DEPOSIT ADDRESS</small>
+            <code id="depositAddressText" class="deposit-address-code">Not connected</code>
+            <button id="depositCopyBtn" class="btn-primary" type="button">Copy address</button>
+          </div>
+          <div class="deposit-qr-wrap">
+            <img id="depositQrImage" alt="Deposit wallet QR code" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="createdModal" class="modal-overlay" aria-hidden="true">
+      <div class="modal-card">
+        <h3>Token Launched</h3>
+        <p>Your coin is now live on Uniswap and ready to trade.</p>
+        <div class="modal-grid">
+          <span id="createdTokenName">-</span>
+          <code id="createdTokenAddress">-</code>
+        </div>
+        <div class="modal-actions">
+          <a id="openTokenBtn" class="btn-primary" href="#">Open Token Profile</a>
+          <button id="copyTokenBtn" class="btn-ghost" type="button">Copy Token Address</button>
+          <button id="closeCreatedModal" class="btn-ghost" type="button">Close</button>
+        </div>
+      </div>
+    </div>
+
+    <div id="editProfileModal" class="modal-overlay" aria-hidden="true">
+      <div class="modal-card edit-profile-card">
+        <div class="edit-profile-head">
+          <h3>Edit profile</h3>
+          <button id="closeEditProfileModal" class="btn-ghost" type="button">X</button>
+        </div>
+        <p>Update how you appear across Etherpump.fun.</p>
+        <div class="edit-avatar-row">
+          <span id="editAvatarPreview" class="profile-avatar large edit-avatar-preview">EP</span>
+          <div class="edit-avatar-actions">
+            <button id="editAvatarPickBtn" class="btn-ghost" type="button">Choose image</button>
+            <button id="editAvatarRemoveBtn" class="btn-ghost" type="button">Remove</button>
+          </div>
+        </div>
+        <input id="editAvatarFile" type="file" accept="image/*" hidden />
+        <label>
+          Username
+          <input id="editUsername" maxlength="24" placeholder="Choose username" />
+        </label>
+        <label>
+          Bio
+          <textarea id="editBio" placeholder="Describe your profile"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button id="saveEditProfileBtn" class="btn-primary" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/js/sidebar.js?v=20260425g"></script>
+    <script type="module" src="/js/create.js?v=20260424n"></script>
+  </body>
+</html>
+
+
+
+
+
+

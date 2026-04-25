@@ -1,0 +1,699 @@
+import { api } from "./api.js";
+import {
+  defaultUsername,
+  fetchEthUsdPrice,
+  formatCompactUsd,
+  loadUserProfile,
+  parseUiError,
+  resolveCoinImage,
+  saveUserProfile,
+  setPreferredChainId,
+  shortAddress,
+  walletState,
+  weiToUsd
+} from "./core.js";
+import { initWalletControls, initWalletHubMenu, setAlert } from "./ui.js";
+import { getLaunchSparklinePath, initCoinSearchOverlay } from "./searchModal.js?v=20260424d";
+
+const WATCHLIST_KEY = "etherpump.watchlist.v1";
+const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;
+
+const ui = {
+  searchInput: document.getElementById("searchInput"),
+  launchesWrap: document.getElementById("launchList"),
+  trendingWrap: document.getElementById("trendingList"),
+  launchCountLabel: document.getElementById("launchCountLabel"),
+  filterButtons: Array.from(document.querySelectorAll("[data-filter]")),
+  trendPrev: document.getElementById("trendPrev"),
+  trendNext: document.getElementById("trendNext"),
+  alert: document.getElementById("alert"),
+  networkChip: document.getElementById("networkChip"),
+  factoryChip: document.getElementById("factoryChip"),
+  signInBtn: document.getElementById("signInBtn"),
+  profileNav: document.getElementById("profileNav"),
+  profileNavSide: document.getElementById("profileNavSide"),
+  connectBtn: document.getElementById("connectBtn"),
+  disconnectBtn: document.getElementById("disconnectBtn"),
+  walletSelect: document.getElementById("walletChoice"),
+  profileMenuBtn: document.getElementById("profileMenuBtn"),
+  profileMenu: document.getElementById("profileMenu"),
+  profileMenuName: document.getElementById("profileMenuName"),
+  profileMenuNameLarge: document.getElementById("profileMenuNameLarge"),
+  profileMenuMeta: document.getElementById("profileMenuMeta"),
+  profileShareBtn: document.getElementById("profileShareBtn"),
+  profileAvatar: document.getElementById("profileAvatar"),
+  profileAvatarLarge: document.getElementById("profileAvatarLarge"),
+  menuLogoutBtn: document.getElementById("menuLogoutBtn"),
+  editProfileBtn: document.getElementById("editProfileBtn"),
+  editProfileModal: document.getElementById("editProfileModal"),
+  closeEditProfileModal: document.getElementById("closeEditProfileModal"),
+  saveEditProfileBtn: document.getElementById("saveEditProfileBtn"),
+  editUsername: document.getElementById("editUsername"),
+  editBio: document.getElementById("editBio"),
+  editAvatarPreview: document.getElementById("editAvatarPreview"),
+  editAvatarFile: document.getElementById("editAvatarFile"),
+  editAvatarPickBtn: document.getElementById("editAvatarPickBtn"),
+  editAvatarRemoveBtn: document.getElementById("editAvatarRemoveBtn"),
+  walletHubBtn: document.getElementById("walletHubBtn"),
+  walletHubMenu: document.getElementById("walletHubMenu"),
+  walletHubBalance: document.getElementById("walletHubBalance"),
+  walletHubBalanceLarge: document.getElementById("walletHubBalanceLarge"),
+  walletHubNative: document.getElementById("walletHubNative"),
+  walletHubAddressBtn: document.getElementById("walletHubAddressBtn"),
+  walletHubDepositBtn: document.getElementById("walletHubDepositBtn"),
+  walletHubTradeLink: document.getElementById("walletHubTradeLink"),
+  walletHubBuyLink: document.getElementById("walletHubBuyLink"),
+  walletHubHistoryLink: document.getElementById("walletHubHistoryLink"),
+  depositModal: document.getElementById("depositModal"),
+  depositCloseBtn: document.getElementById("depositCloseBtn"),
+  depositCopyBtn: document.getElementById("depositCopyBtn"),
+  depositAddressText: document.getElementById("depositAddressText"),
+  depositQrImage: document.getElementById("depositQrImage")
+};
+
+const state = {
+  launches: [],
+  filter: "movers",
+  query: "",
+  ethUsd: 3000,
+  chainId: 1,
+  pendingProfileImageUri: "",
+  watchlist: loadWatchlist()
+};
+
+let walletHub = null;
+
+function loadWatchlist() {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(WATCHLIST_KEY) || "[]");
+    if (!Array.isArray(parsed)) return [];
+    return parsed.map((v) => String(v || "").toLowerCase()).filter(Boolean);
+  } catch {
+    return [];
+  }
+}
+
+function persistWatchlist() {
+  try {
+    localStorage.setItem(WATCHLIST_KEY, JSON.stringify(state.watchlist));
+  } catch {
+    // ignore
+  }
+}
+
+function getTokenId(launch) {
+  return String(launch?.token || "").toLowerCase();
+}
+
+function isWatched(launch) {
+  const token = getTokenId(launch);
+  return Boolean(token && state.watchlist.includes(token));
+}
+
+function toggleWatch(launch) {
+  const token = getTokenId(launch);
+  if (!token) return;
+  if (state.watchlist.includes(token)) {
+    state.watchlist = state.watchlist.filter((x) => x !== token);
+  } else {
+    state.watchlist = [token, ...state.watchlist].slice(0, 500);
+  }
+  persistWatchlist();
+}
+
+function trimText(value = "", max = 60) {
+  const text = String(value || "").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 3)}...`;
+}
+
+function absoluteDate(tsSec) {
+  const n = Number(tsSec || 0);
+  if (!Number.isFinite(n) || n <= 0) return "-";
+  return new Date(n * 1000).toLocaleString();
+}
+
+function humanAgo(tsSec) {
+  const n = Number(tsSec || 0);
+  if (!Number.isFinite(n) || n <= 0) return "-";
+  const diff = Date.now() - n * 1000;
+  if (diff < 60_000) return "now";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `${mins}m`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d`;
+}
+
+function creatorHandle(address) {
+  if (!address) return "anon";
+  const profile = loadUserProfile(address);
+  return profile.username || defaultUsername(address);
+}
+
+function setAvatar(node, text, imageUri = "") {
+  if (!node) return;
+  const label = String(text || "EP").slice(0, 2).toUpperCase() || "EP";
+  if (imageUri) {
+    node.textContent = "";
+    node.classList.add("with-image");
+    node.style.backgroundImage = `url("${imageUri}")`;
+    return;
+  }
+  node.classList.remove("with-image");
+  node.style.backgroundImage = "";
+  node.textContent = label;
+}
+
+function updateEditAvatarPreview(text = "EP", imageUri = "") {
+  setAvatar(ui.editAvatarPreview, text, imageUri);
+}
+
+function setProfileMenuOpen(open) {
+  if (!ui.profileMenu || !ui.profileMenuBtn) return;
+  ui.profileMenu.classList.toggle("open", Boolean(open));
+  ui.profileMenuBtn.setAttribute("aria-expanded", open ? "true" : "false");
+}
+
+function formatLaunchMarketCap(launch) {
+  const usd = weiToUsd(launch?.pool?.marketCapWei || "0", state.ethUsd);
+  return `${formatCompactUsd(usd)} MC`;
+}
+
+function addLaunchMetrics(launch) {
+  const marketCapEth = Number(launch?.pool?.marketCapEth || 0);
+  const createdSec = Number(launch?.createdAt || 0);
+  const ageHours = Math.max(0, (Date.now() - createdSec * 1000) / 3_600_000);
+  const recentBoost = Math.max(0, 48 - ageHours);
+  const pair = String(launch?.pool?.migratedPair || "").toLowerCase();
+  const isLive = Boolean(launch?.pool?.graduated) && pair && pair !== "0x0000000000000000000000000000000000000000";
+  const moverScore = marketCapEth * 1000 + recentBoost;
+  return { ...launch, metrics: { marketCapEth, createdSec, isLive, moverScore } };
+}
+
+function launchMatchesQuery(launch, query) {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return (
+    String(launch?.name || "").toLowerCase().includes(q) ||
+    String(launch?.symbol || "").toLowerCase().includes(q) ||
+    String(launch?.description || "").toLowerCase().includes(q) ||
+    String(launch?.token || "").toLowerCase().includes(q) ||
+    String(launch?.creator || "").toLowerCase().includes(q)
+  );
+}
+
+function filteredLaunches() {
+  const items = state.launches.map(addLaunchMetrics).filter((launch) => launchMatchesQuery(launch, state.query));
+  if (state.filter === "watchlist") {
+    return items.filter((launch) => isWatched(launch)).sort((a, b) => b.metrics.createdSec - a.metrics.createdSec);
+  }
+  if (state.filter === "live") {
+    return items.filter((launch) => launch.metrics.isLive).sort((a, b) => b.metrics.moverScore - a.metrics.moverScore);
+  }
+  if (state.filter === "new") {
+    return items.sort((a, b) => b.metrics.createdSec - a.metrics.createdSec);
+  }
+  if (state.filter === "oldest") {
+    return items.sort((a, b) => a.metrics.createdSec - b.metrics.createdSec);
+  }
+  return items.sort((a, b) => b.metrics.moverScore - a.metrics.moverScore);
+}
+
+function buildExploreSparklineSvg(path, sparkKey) {
+  const gradientId = `sparkFill-${String(sparkKey || "").replace(/[^a-z0-9]/gi, "")}`;
+  return `
+    <svg viewBox="0 0 112 30" preserveAspectRatio="none">
+      <defs>
+        <linearGradient id="${gradientId}" x1="0" y1="0" x2="0" y2="1">
+          <stop offset="0%" stop-color="rgba(110,255,193,0.14)"></stop>
+          <stop offset="100%" stop-color="rgba(110,255,193,0)"></stop>
+        </linearGradient>
+      </defs>
+      <path class="coin-image-spark-fill" d="${path} L112 30 L0 30 Z" fill="url(#${gradientId})"></path>
+      <path class="coin-image-spark-line" d="${path}"></path>
+    </svg>
+  `;
+}
+
+function getExploreSparkKey(launch) {
+  return `${String(launch?.token || "").toLowerCase()}:${String(launch?.pool?.migratedPair || launch?.poolAddress || "").toLowerCase()}`;
+}
+
+async function hydrateExploreSparklines(items = []) {
+  if (!Array.isArray(items) || !items.length) return;
+  const nodes = Array.from(document.querySelectorAll("[data-explore-spark]"));
+  if (!nodes.length) return;
+  const byKey = new Map(nodes.map((node) => [String(node.dataset.exploreSpark || ""), node]));
+  await Promise.all(
+    items.slice(0, 36).map(async (launch) => {
+      const key = getExploreSparkKey(launch);
+      const target = byKey.get(key);
+      if (!target) return;
+      const path = await getLaunchSparklinePath(launch, state.chainId);
+      if (!path) {
+        target.classList.add("fallback");
+        return;
+      }
+      target.classList.add("ready");
+      target.innerHTML = buildExploreSparklineSvg(path, key);
+    })
+  );
+}
+
+function buildExploreCard(launch) {
+  const image = resolveCoinImage(launch);
+  const watched = isWatched(launch);
+  const sparkKey = getExploreSparkKey(launch);
+  return `
+    <article class="coin-card">
+      <div class="coin-image-wrap">
+        <a href="/token?token=${launch.token}" class="coin-image-link">
+          <img class="coin-image" src="${image}" alt="${launch.symbol} logo" />
+          <span class="coin-image-spark" data-explore-spark="${sparkKey}" aria-hidden="true"></span>
+        </a>
+        <span class="coin-badge">Uniswap</span>
+        <button class="watch-btn ${watched ? "active" : ""}" type="button" data-watch-token="${launch.token}" aria-label="Toggle watchlist">
+          &#9733;
+        </button>
+      </div>
+      <div class="coin-body">
+        <div class="coin-head">
+          <h3><a href="/token?token=${launch.token}">${trimText(launch.name, 34)}</a></h3>
+          <span>$${trimText(launch.symbol, 14)}</span>
+        </div>
+        <strong class="coin-metric">${formatLaunchMarketCap(launch)}</strong>
+        <div class="coin-meta">
+          <a href="/profile?address=${launch.creator}" class="creator-pill">${trimText(creatorHandle(launch.creator), 20)}</a>
+          <span title="${absoluteDate(launch.createdAt)}">${humanAgo(launch.createdAt)}</span>
+        </div>
+        <p>${trimText(launch.description, 92)}</p>
+      </div>
+    </article>
+  `;
+}
+
+function buildTrendingCard(launch) {
+  const image = resolveCoinImage(launch);
+  const createdLabel = humanAgo(launch.createdAt);
+  return `
+    <article class="trend-item">
+      <a href="/token?token=${launch.token}" class="trend-media-link">
+        <img src="${image}" alt="${launch.symbol} logo" />
+        <div class="trend-overlay">
+          <strong>${formatLaunchMarketCap(launch)}</strong>
+          <span>${trimText(launch.name, 18)}</span>
+          <span>$${trimText(launch.symbol, 14)}</span>
+        </div>
+      </a>
+      <div class="trend-copy">
+        <strong>${trimText(launch.name, 36)}</strong>
+        <span>${trimText(creatorHandle(launch.creator), 18)} | ${createdLabel}</span>
+        <p>${trimText(launch.description, 56)}</p>
+      </div>
+    </article>
+  `;
+}
+
+function renderTrending() {
+  const items = state.launches.map(addLaunchMetrics).sort((a, b) => b.metrics.moverScore - a.metrics.moverScore).slice(0, 8);
+  if (!items.length) {
+    ui.trendingWrap.innerHTML = `<article class="panel-card"><p class="muted">No launches yet.</p></article>`;
+    return;
+  }
+  ui.trendingWrap.innerHTML = items.map((launch) => buildTrendingCard(launch)).join("");
+}
+
+function renderExplore() {
+  const items = filteredLaunches();
+  if (ui.launchCountLabel) {
+    ui.launchCountLabel.textContent = `${items.length} ${items.length === 1 ? "coin" : "coins"}`;
+  }
+  if (!items.length) {
+    const message =
+      state.filter === "watchlist"
+        ? "Watchlist is empty. Click the star on a token to add it."
+        : "No launches match your filters.";
+    ui.launchesWrap.innerHTML = `<article class="panel-card"><p class="muted">${message}</p></article>`;
+    return;
+  }
+  ui.launchesWrap.innerHTML = items.map((launch) => buildExploreCard(launch)).join("");
+  hydrateExploreSparklines(items).catch(() => {
+    // keep static fallback if sparkline fetch fails
+  });
+}
+
+function setActiveFilterButton() {
+  for (const button of ui.filterButtons) {
+    button.classList.toggle("active", button.dataset.filter === state.filter);
+  }
+}
+
+function updateProfileIdentity() {
+  const ws = walletState();
+  const connected = Boolean(ws.signer && ws.address);
+  const profile = connected ? loadUserProfile(ws.address) : { username: "Guest", imageUri: "", bio: "" };
+  const name = connected ? profile.username || defaultUsername(ws.address) : "Guest";
+  const avatarText = connected ? name.slice(0, 2).toUpperCase() : "EP";
+  const imageUri = connected ? profile.imageUri || "" : "";
+
+  if (ui.profileMenuName) ui.profileMenuName.textContent = name;
+  if (ui.profileMenuNameLarge) ui.profileMenuNameLarge.textContent = name;
+  if (ui.profileMenuMeta) ui.profileMenuMeta.textContent = connected ? "0 followers" : "Not connected";
+  if (ui.signInBtn) ui.signInBtn.style.display = connected ? "none" : "inline-flex";
+  if (ui.walletHubBtn) ui.walletHubBtn.style.display = connected ? "inline-flex" : "none";
+  if (ui.profileMenuBtn) ui.profileMenuBtn.style.display = connected ? "inline-flex" : "none";
+  if (!connected) {
+    walletHub?.setOpen(false);
+    setProfileMenuOpen(false);
+  }
+
+  setAvatar(ui.profileAvatar, avatarText, imageUri);
+  setAvatar(ui.profileAvatarLarge, avatarText, imageUri);
+
+  const profileUrl = connected ? `/profile?address=${ws.address}` : "/profile";
+  if (ui.profileNav) {
+    ui.profileNav.href = profileUrl;
+    ui.profileNav.style.display = connected ? "block" : "none";
+  }
+  if (ui.profileNavSide) {
+    ui.profileNavSide.href = profileUrl;
+    ui.profileNavSide.style.display = connected ? "block" : "none";
+  }
+
+  if (ui.editProfileBtn) {
+    ui.editProfileBtn.disabled = !connected;
+    ui.editProfileBtn.style.opacity = connected ? "1" : "0.6";
+    ui.editProfileBtn.style.cursor = connected ? "pointer" : "not-allowed";
+  }
+  if (ui.menuLogoutBtn) {
+    ui.menuLogoutBtn.textContent = connected ? "Log out" : "Connect wallet";
+  }
+}
+
+function openEditProfileModal() {
+  const ws = walletState();
+  if (!ws.address) {
+    setAlert(ui.alert, "Connect wallet first", true);
+    return;
+  }
+  const profile = loadUserProfile(ws.address);
+  if (ui.editUsername) ui.editUsername.value = profile.username || defaultUsername(ws.address);
+  if (ui.editBio) ui.editBio.value = profile.bio || "";
+  state.pendingProfileImageUri = String(profile.imageUri || "");
+  updateEditAvatarPreview((profile.username || "EP").slice(0, 2).toUpperCase(), state.pendingProfileImageUri);
+  ui.editProfileModal?.classList.add("open");
+  ui.editProfileModal?.setAttribute("aria-hidden", "false");
+}
+
+function hideEditProfileModal() {
+  ui.editProfileModal?.classList.remove("open");
+  ui.editProfileModal?.setAttribute("aria-hidden", "true");
+}
+
+function readFileAsDataUrl(file) {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result || ""));
+    reader.onerror = () => reject(new Error("Could not read image file"));
+    reader.readAsDataURL(file);
+  });
+}
+
+function setupProfileMenu() {
+  ui.profileMenuBtn?.addEventListener("click", (event) => {
+    event.stopPropagation();
+    walletHub?.setOpen(false);
+    const isOpen = ui.profileMenu?.classList.contains("open");
+    setProfileMenuOpen(!isOpen);
+  });
+
+  document.addEventListener("click", (event) => {
+    if (!ui.profileMenu || !ui.profileMenuBtn) return;
+    if (!ui.profileMenu.classList.contains("open")) return;
+    if (ui.profileMenu.contains(event.target) || ui.profileMenuBtn.contains(event.target)) return;
+    setProfileMenuOpen(false);
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      setProfileMenuOpen(false);
+      hideEditProfileModal();
+    }
+  });
+
+  ui.menuLogoutBtn?.addEventListener("click", () => {
+    const ws = walletState();
+    if (ws.signer && ws.address) {
+      ui.disconnectBtn?.click();
+      setProfileMenuOpen(false);
+      updateProfileIdentity();
+      walletHub?.refresh();
+      return;
+    }
+    ui.connectBtn?.click();
+  });
+
+  ui.editProfileBtn?.addEventListener("click", () => {
+    setProfileMenuOpen(false);
+    openEditProfileModal();
+  });
+
+  ui.profileShareBtn?.addEventListener("click", async () => {
+    const ws = walletState();
+    if (!ws.address) {
+      setAlert(ui.alert, "Connect wallet first", true);
+      return;
+    }
+    try {
+      const link = `${window.location.origin}/profile?address=${ws.address}`;
+      await navigator.clipboard.writeText(link);
+      setAlert(ui.alert, "Profile link copied");
+    } catch {
+      setAlert(ui.alert, "Could not copy profile link", true);
+    }
+  });
+}
+
+function setupEditProfileModal() {
+  ui.closeEditProfileModal?.addEventListener("click", hideEditProfileModal);
+  ui.editProfileModal?.addEventListener("click", (event) => {
+    if (event.target === ui.editProfileModal) hideEditProfileModal();
+  });
+
+  ui.editAvatarPickBtn?.addEventListener("click", () => {
+    ui.editAvatarFile?.click();
+  });
+
+  ui.editAvatarRemoveBtn?.addEventListener("click", () => {
+    state.pendingProfileImageUri = "";
+    const text = String(ui.editUsername?.value || "EP").slice(0, 2).toUpperCase();
+    updateEditAvatarPreview(text || "EP", "");
+    if (ui.editAvatarFile) ui.editAvatarFile.value = "";
+  });
+
+  ui.editAvatarFile?.addEventListener("change", async (event) => {
+    try {
+      const file = event.target.files?.[0];
+      if (!file) return;
+      if (!file.type.startsWith("image/")) throw new Error("Pick a valid image file");
+      if (file.size > MAX_PROFILE_IMAGE_BYTES) throw new Error("Profile image too large. Keep it under 2 MB.");
+      const dataUrl = await readFileAsDataUrl(file);
+      setAlert(ui.alert, "Uploading profile image...");
+      const uploaded = await api.uploadImage(dataUrl);
+      state.pendingProfileImageUri = uploaded.url;
+      const text = String(ui.editUsername?.value || "EP").slice(0, 2).toUpperCase();
+      updateEditAvatarPreview(text || "EP", state.pendingProfileImageUri);
+      setAlert(ui.alert, "Profile image uploaded");
+    } catch (err) {
+      setAlert(ui.alert, parseUiError(err), true);
+    }
+  });
+
+  ui.editUsername?.addEventListener("input", () => {
+    const text = String(ui.editUsername?.value || "EP").slice(0, 2).toUpperCase();
+    updateEditAvatarPreview(text || "EP", state.pendingProfileImageUri);
+  });
+
+  ui.saveEditProfileBtn?.addEventListener("click", () => {
+    const ws = walletState();
+    if (!ws.address) {
+      setAlert(ui.alert, "Connect wallet first", true);
+      return;
+    }
+    const username = String(ui.editUsername?.value || "").trim();
+    const bio = String(ui.editBio?.value || "").trim();
+    if (!username) {
+      setAlert(ui.alert, "Username is required", true);
+      return;
+    }
+    saveUserProfile(ws.address, { username, bio, imageUri: state.pendingProfileImageUri });
+    updateProfileIdentity();
+    renderTrending();
+    renderExplore();
+    hideEditProfileModal();
+    setAlert(ui.alert, "Profile updated");
+  });
+}
+
+function setupTrendingNav() {
+  ui.trendPrev?.addEventListener("click", () => {
+    ui.trendingWrap?.scrollBy({ left: -320, behavior: "smooth" });
+  });
+  ui.trendNext?.addEventListener("click", () => {
+    ui.trendingWrap?.scrollBy({ left: 320, behavior: "smooth" });
+  });
+}
+
+function setupInteractions() {
+  ui.searchInput?.addEventListener("input", () => {
+    state.query = ui.searchInput.value.trim();
+    renderExplore();
+  });
+
+  for (const button of ui.filterButtons) {
+    button.addEventListener("click", () => {
+      state.filter = button.dataset.filter || "movers";
+      setActiveFilterButton();
+      renderExplore();
+    });
+  }
+
+  ui.launchesWrap?.addEventListener("click", (event) => {
+    const watchBtn = event.target.closest("[data-watch-token]");
+    if (!watchBtn) return;
+    event.preventDefault();
+    event.stopPropagation();
+    const token = String(watchBtn.dataset.watchToken || "").toLowerCase();
+    const launch = state.launches.find((item) => getTokenId(item) === token);
+    if (!launch) return;
+    toggleWatch(launch);
+    renderExplore();
+  });
+}
+
+async function refreshLaunches() {
+  const launchesRes = await api.launches(80, 0);
+  state.launches = launchesRes.launches || [];
+  renderTrending();
+  renderExplore();
+}
+
+async function refreshEthUsd(force = false) {
+  const price = await fetchEthUsdPrice(force);
+  if (Number.isFinite(price) && price > 0) {
+    state.ethUsd = price;
+  }
+}
+
+async function loadConfig() {
+  const cfg = await api.config();
+  state.chainId = Number(cfg.chainId || 1);
+  setPreferredChainId(state.chainId);
+  if (ui.networkChip) ui.networkChip.textContent = `Chain ${cfg.chainId}`;
+  if (ui.factoryChip) ui.factoryChip.textContent = shortAddress(cfg.factoryAddress);
+}
+
+async function init() {
+  walletHub = initWalletHubMenu({
+    triggerEl: ui.walletHubBtn,
+    menuEl: ui.walletHubMenu,
+    balanceEl: ui.walletHubBalance,
+    balanceLargeEl: ui.walletHubBalanceLarge,
+    nativeEl: ui.walletHubNative,
+    addressBtnEl: ui.walletHubAddressBtn,
+    historyLinkEl: ui.walletHubHistoryLink,
+    depositBtnEl: ui.walletHubDepositBtn,
+    tradeLinkEl: ui.walletHubTradeLink,
+    buyLinkEl: ui.walletHubBuyLink,
+    depositModalEl: ui.depositModal,
+    depositCloseBtnEl: ui.depositCloseBtn,
+    depositCopyBtnEl: ui.depositCopyBtn,
+    depositAddressEl: ui.depositAddressText,
+    depositQrEl: ui.depositQrImage,
+    alertEl: ui.alert,
+    onOpen: () => setProfileMenuOpen(false)
+  });
+
+  initWalletControls({
+    selectEl: ui.walletSelect,
+    connectBtn: ui.connectBtn,
+    disconnectBtn: ui.disconnectBtn,
+    labelEl: null,
+    alertEl: ui.alert,
+    onConnected: async () => {
+      updateProfileIdentity();
+      setProfileMenuOpen(false);
+      await walletHub?.refresh();
+    }
+  });
+
+  ui.disconnectBtn?.addEventListener("click", () => {
+    updateProfileIdentity();
+    setProfileMenuOpen(false);
+    walletHub?.refresh();
+  });
+
+  ui.connectBtn?.addEventListener("click", () => {
+    setTimeout(() => {
+      updateProfileIdentity();
+      walletHub?.refresh();
+    }, 30);
+  });
+
+  ui.walletSelect?.addEventListener("change", () => {
+    setTimeout(() => {
+      updateProfileIdentity();
+      walletHub?.refresh();
+    }, 30);
+  });
+
+  ui.signInBtn?.addEventListener("click", () => {
+    ui.connectBtn?.click();
+  });
+
+  updateProfileIdentity();
+  setActiveFilterButton();
+  setupProfileMenu();
+  setupEditProfileModal();
+  setupTrendingNav();
+  setupInteractions();
+  initCoinSearchOverlay({ triggerInputs: [ui.searchInput] });
+
+  try {
+    await refreshEthUsd();
+  } catch {
+    // keep fallback
+  }
+
+  await loadConfig();
+  try {
+    await refreshLaunches();
+  } catch (err) {
+    ui.trendingWrap.innerHTML = `<article class="panel-card"><p class="muted">Unable to load trending tokens right now.</p></article>`;
+    ui.launchesWrap.innerHTML = `<article class="panel-card"><p class="muted">Unable to load explore feed right now.</p></article>`;
+    setAlert(ui.alert, parseUiError(err), true);
+  }
+
+  setInterval(() => {
+    refreshLaunches().catch(() => {
+      // ignore transient polling failures
+    });
+  }, 15000);
+
+  setInterval(() => {
+    refreshEthUsd(true)
+      .then(() => {
+        renderTrending();
+        renderExplore();
+      })
+      .catch(() => {
+        // ignore ETH/USD polling failures
+      });
+  }, 60_000);
+}
+
+init().catch((err) => {
+  setAlert(ui.alert, parseUiError(err), true);
+});

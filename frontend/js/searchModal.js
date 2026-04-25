@@ -1,0 +1,535 @@
+import { api } from "./api.js";
+import { defaultUsername, fetchEthUsdPrice, formatCompactUsd, loadUserProfile, resolveCoinImage, weiToUsd } from "./core.js";
+
+const RECENT_SEARCHES_KEY = "etherpump.search.recent.v1";
+const RECENT_VIEWED_KEY = "etherpump.search.viewed.v1";
+const MAX_RECENT_SEARCHES = 10;
+const MAX_RECENT_VIEWED = 20;
+const GECKO_API_ROOT = "https://api.geckoterminal.com/api/v2";
+const GECKO_NETWORK_CANDIDATES = {
+  1: ["eth"],
+  11155111: ["sepolia-testnet", "eth-sepolia", "sepolia"],
+  default: ["eth"]
+};
+const sparklineCache = new Map();
+const sparklineInflight = new Map();
+
+function readList(key) {
+  try {
+    const parsed = JSON.parse(localStorage.getItem(key) || "[]");
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
+function writeList(key, value) {
+  try {
+    localStorage.setItem(key, JSON.stringify(value));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+function creatorHandle(address) {
+  if (!address) return "anon";
+  const profile = loadUserProfile(address);
+  return profile.username || defaultUsername(address);
+}
+
+function trimText(value, max = 32) {
+  const text = String(value || "").trim();
+  if (text.length <= max) return text;
+  return `${text.slice(0, max - 3)}...`;
+}
+
+function marketCapLabel(launch, ethUsd) {
+  const usd = weiToUsd(launch?.pool?.marketCapWei || "0", ethUsd);
+  return formatCompactUsd(usd);
+}
+
+function addRecentSearch(query) {
+  const q = String(query || "").trim();
+  if (!q) return;
+  const list = readList(RECENT_SEARCHES_KEY).filter((item) => String(item || "").toLowerCase() !== q.toLowerCase());
+  list.unshift(q);
+  writeList(RECENT_SEARCHES_KEY, list.slice(0, MAX_RECENT_SEARCHES));
+}
+
+function clearRecentSearches() {
+  writeList(RECENT_SEARCHES_KEY, []);
+}
+
+export function recordViewedLaunch(launch) {
+  if (!launch?.token) return;
+  const token = String(launch.token).toLowerCase();
+  const now = Date.now();
+  const entry = {
+    token,
+    ts: now,
+    name: String(launch.name || ""),
+    symbol: String(launch.symbol || ""),
+    creator: String(launch.creator || ""),
+    imageURI: String(launch.imageURI || ""),
+    marketCapWei: String(launch?.pool?.marketCapWei || "0")
+  };
+  const list = readList(RECENT_VIEWED_KEY).filter((item) => String(item?.token || "").toLowerCase() !== token);
+  list.unshift(entry);
+  writeList(RECENT_VIEWED_KEY, list.slice(0, MAX_RECENT_VIEWED));
+}
+
+function clearRecentViewed() {
+  writeList(RECENT_VIEWED_KEY, []);
+}
+
+function timeAgo(tsMs) {
+  const diff = Date.now() - Number(tsMs || 0);
+  if (diff < 60_000) return "now";
+  const mins = Math.floor(diff / 60_000);
+  if (mins < 60) return `${mins}m ago`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  return `${days}d ago`;
+}
+
+function openToken(token) {
+  if (!token) return;
+  window.location.href = `/token?token=${token}`;
+}
+
+function byMcapDesc(a, b) {
+  return Number(b?.pool?.marketCapEth || 0) - Number(a?.pool?.marketCapEth || 0);
+}
+
+function getPoolAddress(launch) {
+  const migrated = String(launch?.pool?.migratedPair || "").trim();
+  if (migrated && migrated !== "0x0000000000000000000000000000000000000000") return migrated;
+  const direct = String(launch?.poolAddress || "").trim();
+  return direct;
+}
+
+function getChainId(launches = []) {
+  const first = launches[0] || {};
+  const fromPool = Number(first?.pool?.chainId || 0);
+  if (Number.isFinite(fromPool) && fromPool > 0) return fromPool;
+  const fromLaunch = Number(first?.chainId || 0);
+  if (Number.isFinite(fromLaunch) && fromLaunch > 0) return fromLaunch;
+  return 1;
+}
+
+function getNetworkCandidates(chainId) {
+  const id = Number(chainId || 0);
+  return GECKO_NETWORK_CANDIDATES[id] || GECKO_NETWORK_CANDIDATES.default;
+}
+
+function buildSparklinePath(values = [], width = 112, height = 30) {
+  if (!Array.isArray(values) || values.length < 2) return "";
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = Math.max(max - min, 1e-12);
+  const xStep = width / Math.max(values.length - 1, 1);
+
+  const points = values.map((value, index) => {
+    const x = index * xStep;
+    const y = height - ((value - min) / span) * height;
+    return [x, y];
+  });
+
+  return points.map(([x, y], idx) => `${idx === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
+}
+
+async function fetchSparklinePath(launch, chainId) {
+  const pool = getPoolAddress(launch);
+  if (!pool) return "";
+  const key = `${Number(chainId || 0)}:${pool.toLowerCase()}`;
+  if (sparklineCache.has(key)) return sparklineCache.get(key);
+  if (sparklineInflight.has(key)) return sparklineInflight.get(key);
+
+  const task = (async () => {
+    const networks = getNetworkCandidates(chainId);
+    for (const network of networks) {
+      try {
+        const url = `${GECKO_API_ROOT}/networks/${network}/pools/${pool}/ohlcv/minute?aggregate=15&limit=24&currency=usd`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (!res.ok) continue;
+        const json = await res.json();
+        const rows = json?.data?.attributes?.ohlcv_list;
+        if (!Array.isArray(rows) || rows.length < 2) continue;
+        const closes = rows
+          .map((row) => ({ t: Number(row?.[0] || 0), c: Number(row?.[4] || 0) }))
+          .filter((row) => Number.isFinite(row.t) && row.t > 0 && Number.isFinite(row.c) && row.c > 0)
+          .sort((a, b) => a.t - b.t)
+          .map((row) => row.c);
+        if (closes.length < 2) continue;
+        const path = buildSparklinePath(closes);
+        if (!path) continue;
+        sparklineCache.set(key, path);
+        return path;
+      } catch {
+        // try next network alias
+      }
+    }
+    sparklineCache.set(key, "");
+    return "";
+  })().finally(() => {
+    sparklineInflight.delete(key);
+  });
+
+  sparklineInflight.set(key, task);
+  return task;
+}
+
+export async function getLaunchSparklinePath(launch, chainIdHint = 1) {
+  const chainId = Number(chainIdHint || 1) || 1;
+  return fetchSparklinePath(launch, chainId);
+}
+
+export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
+  const inputs = (triggerInputs || []).filter(Boolean);
+  if (!inputs.length) return;
+
+  const state = {
+    open: false,
+    query: "",
+    launches: [],
+    ethUsd: 3000,
+    loading: false,
+    loaded: false
+  };
+
+  const overlay = document.createElement("div");
+  overlay.className = "coin-search-overlay";
+  overlay.innerHTML = `
+    <div class="coin-search-modal" role="dialog" aria-modal="true" aria-label="Search coins">
+      <div class="coin-search-head">
+        <span class="coin-search-icon" aria-hidden="true">
+          <svg viewBox="0 0 24 24">
+            <circle cx="11" cy="11" r="6"></circle>
+            <path d="M16 16l5 5"></path>
+          </svg>
+        </span>
+        <input id="coinSearchModalInput" type="text" placeholder="Search for coins..." />
+      </div>
+      <div id="coinSearchModalBody" class="coin-search-body"></div>
+    </div>
+  `;
+  document.body.appendChild(overlay);
+
+  const modal = overlay.querySelector(".coin-search-modal");
+  const input = overlay.querySelector("#coinSearchModalInput");
+  const body = overlay.querySelector("#coinSearchModalBody");
+
+  function renderEmpty() {
+    body.innerHTML = `
+      <div class="coin-search-empty">
+        <p>Loading coins...</p>
+      </div>
+    `;
+  }
+
+  function renderResults(results) {
+    if (!results.length) {
+      return `<p class="coin-search-muted">No matching coins yet.</p>`;
+    }
+    return results
+      .slice(0, 14)
+      .map((launch) => {
+        const image = resolveCoinImage(launch);
+        const creator = creatorHandle(launch.creator);
+        const mcap = marketCapLabel(launch, state.ethUsd);
+        return `
+          <button class="coin-search-row" type="button" data-open-token="${launch.token}">
+            <img src="${image}" alt="${launch.symbol} logo" />
+            <div class="coin-search-row-copy">
+              <strong>${trimText(launch.name, 34)}</strong>
+              <span>${trimText(creator, 20)}</span>
+            </div>
+            <b>${mcap}</b>
+          </button>
+        `;
+      })
+      .join("");
+  }
+
+  function renderHotCoins() {
+    const hot = [...state.launches].sort(byMcapDesc).slice(0, 8);
+    if (!hot.length) return `<p class="coin-search-muted">No coins found.</p>`;
+    return hot
+      .map((launch) => {
+        const image = resolveCoinImage(launch);
+        const mcap = marketCapLabel(launch, state.ethUsd);
+        const sparkKey = `${String(launch.token || "").toLowerCase()}:${String(getPoolAddress(launch) || "").toLowerCase()}`;
+        return `
+          <button class="coin-search-hot-card" type="button" data-open-token="${launch.token}">
+            <div class="coin-search-hot-top">
+              <img src="${image}" alt="${launch.symbol} logo" />
+              <div>
+                <strong>${trimText(launch.name, 14)}</strong>
+                <span>${trimText(launch.symbol, 10)}</span>
+              </div>
+            </div>
+            <div class="coin-search-spark" data-spark-key="${sparkKey}" aria-hidden="true"></div>
+            <b>${mcap}</b>
+          </button>
+        `;
+      })
+      .join("");
+  }
+
+  async function hydrateHotSparklines() {
+    const hot = [...state.launches].sort(byMcapDesc).slice(0, 8);
+    if (!hot.length) return;
+    const chainId = getChainId(state.launches);
+    await Promise.all(
+      hot.map(async (launch) => {
+        const sparkKey = `${String(launch.token || "").toLowerCase()}:${String(getPoolAddress(launch) || "").toLowerCase()}`;
+        const target = body.querySelector(`[data-spark-key="${sparkKey}"]`);
+        if (!target) return;
+        const path = await fetchSparklinePath(launch, chainId);
+        if (!path) {
+          target.classList.add("fallback");
+          return;
+        }
+        target.classList.add("ready");
+        target.innerHTML = `
+          <svg viewBox="0 0 112 30" preserveAspectRatio="none">
+            <defs>
+              <linearGradient id="sparkFill-${sparkKey.replace(/[^a-z0-9]/gi, "")}" x1="0" y1="0" x2="0" y2="1">
+                <stop offset="0%" stop-color="rgba(110,255,193,0.14)"></stop>
+                <stop offset="100%" stop-color="rgba(110,255,193,0)"></stop>
+              </linearGradient>
+            </defs>
+            <path class="coin-search-spark-fill" d="${path} L112 30 L0 30 Z" fill="url(#sparkFill-${sparkKey.replace(/[^a-z0-9]/gi, "")})"></path>
+            <path class="coin-search-spark-line" d="${path}"></path>
+          </svg>
+        `;
+      })
+    );
+  }
+
+  function renderRecentSearches() {
+    const terms = readList(RECENT_SEARCHES_KEY);
+    if (!terms.length) return `<p class="coin-search-muted">No recent searches yet.</p>`;
+    return terms
+      .map(
+        (term) => `
+          <button class="coin-search-term" type="button" data-fill-term="${term}">
+            <span class="coin-search-term-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <circle cx="11" cy="11" r="6"></circle>
+                <path d="M16 16l5 5"></path>
+              </svg>
+            </span>
+            <span>${term}</span>
+          </button>
+        `
+      )
+      .join("");
+  }
+
+  function renderRecentViewed() {
+    const viewed = readList(RECENT_VIEWED_KEY);
+    if (!viewed.length) return `<p class="coin-search-muted">No recently viewed coins yet.</p>`;
+    const byToken = new Map(state.launches.map((launch) => [String(launch.token || "").toLowerCase(), launch]));
+    return viewed
+      .slice(0, 10)
+      .map((entry) => {
+        const launch = byToken.get(String(entry.token || "").toLowerCase());
+        const image = launch ? resolveCoinImage(launch) : resolveCoinImage(entry);
+        const name = launch?.name || entry.name || "Unknown";
+        const symbol = launch?.symbol || entry.symbol || "TOKEN";
+        const mcap = launch ? marketCapLabel(launch, state.ethUsd) : formatCompactUsd(weiToUsd(entry.marketCapWei || "0", state.ethUsd));
+        return `
+          <button class="coin-search-row" type="button" data-open-token="${entry.token}">
+            <img src="${image}" alt="${symbol} logo" />
+            <div class="coin-search-row-copy">
+              <strong>${trimText(name, 34)}</strong>
+              <span>${trimText(symbol, 16)} • ${timeAgo(entry.ts)}</span>
+            </div>
+            <b>${mcap}</b>
+          </button>
+        `;
+      })
+      .join("");
+  }
+
+  function renderBody() {
+    const query = state.query.toLowerCase();
+    const hasQuery = Boolean(query);
+    const filtered = hasQuery
+      ? state.launches.filter((launch) => {
+          return (
+            String(launch.name || "").toLowerCase().includes(query) ||
+            String(launch.symbol || "").toLowerCase().includes(query) ||
+            String(launch.token || "").toLowerCase().includes(query) ||
+            String(launch.creator || "").toLowerCase().includes(query)
+          );
+        })
+      : [];
+
+    if (hasQuery) {
+      body.innerHTML = `
+        <section class="coin-search-section">
+          <div class="coin-search-section-head">
+            <h5>SEARCH RESULTS</h5>
+          </div>
+          <div class="coin-search-list">
+            ${renderResults(filtered)}
+          </div>
+        </section>
+      `;
+      return;
+    }
+
+    body.innerHTML = `
+      <section class="coin-search-section">
+        <div class="coin-search-section-head">
+          <h5>HOT COINS</h5>
+        </div>
+        <div class="coin-search-hot-row">${renderHotCoins()}</div>
+      </section>
+      <section class="coin-search-section">
+        <div class="coin-search-section-head">
+          <h5>RECENTLY SEARCHED</h5>
+          <button type="button" class="coin-search-clear" data-clear-searches>Clear</button>
+        </div>
+        <div class="coin-search-list">${renderRecentSearches()}</div>
+      </section>
+      <section class="coin-search-section">
+        <div class="coin-search-section-head">
+          <h5>RECENTLY VIEWED</h5>
+          <button type="button" class="coin-search-clear" data-clear-viewed>Clear</button>
+        </div>
+        <div class="coin-search-list">${renderRecentViewed()}</div>
+      </section>
+    `;
+    hydrateHotSparklines().catch(() => {
+      // keep static fallback if gecko fails
+    });
+  }
+
+  async function ensureData() {
+    if (state.loading || state.loaded) return;
+    state.loading = true;
+    renderEmpty();
+    try {
+      const [ethUsd, launchesRes] = await Promise.all([fetchEthUsdPrice(false), api.launches(120, 0)]);
+      if (Number.isFinite(ethUsd) && ethUsd > 0) state.ethUsd = ethUsd;
+      state.launches = launchesRes?.launches || [];
+      state.loaded = true;
+      renderBody();
+    } catch {
+      state.loaded = true;
+      state.launches = [];
+      renderBody();
+    } finally {
+      state.loading = false;
+    }
+  }
+
+  function open(initialQuery = "") {
+    state.query = String(initialQuery || "").trim();
+    overlay.classList.add("open");
+    state.open = true;
+    document.body.classList.add("coin-search-open");
+    input.value = state.query;
+    if (state.loaded) {
+      renderBody();
+    } else {
+      renderEmpty();
+      ensureData().catch(() => {
+        // handled in ensureData
+      });
+    }
+    setTimeout(() => input.focus(), 0);
+  }
+
+  function close() {
+    overlay.classList.remove("open");
+    state.open = false;
+    document.body.classList.remove("coin-search-open");
+  }
+
+  for (const trigger of inputs) {
+    trigger.addEventListener("focus", () => open(trigger.value));
+    trigger.addEventListener("click", () => open(trigger.value));
+  }
+
+  overlay.addEventListener("click", (event) => {
+    if (event.target === overlay) close();
+  });
+
+  modal.addEventListener("click", (event) => {
+    const openTokenBtn = event.target.closest("[data-open-token]");
+    if (openTokenBtn) {
+      const token = String(openTokenBtn.dataset.openToken || "");
+      if (token) {
+        addRecentSearch(state.query || token);
+        close();
+        openToken(token);
+      }
+      return;
+    }
+
+    const fillTermBtn = event.target.closest("[data-fill-term]");
+    if (fillTermBtn) {
+      const term = String(fillTermBtn.dataset.fillTerm || "");
+      state.query = term;
+      input.value = term;
+      renderBody();
+      input.focus();
+      return;
+    }
+
+    if (event.target.closest("[data-clear-searches]")) {
+      clearRecentSearches();
+      renderBody();
+      return;
+    }
+
+    if (event.target.closest("[data-clear-viewed]")) {
+      clearRecentViewed();
+      renderBody();
+    }
+  });
+
+  input.addEventListener("input", () => {
+    state.query = input.value.trim();
+    renderBody();
+  });
+
+  input.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+      return;
+    }
+
+    if (event.key === "Enter") {
+      const query = state.query.trim();
+      if (!query) return;
+      addRecentSearch(query);
+      const first = state.launches.find((launch) => {
+        const q = query.toLowerCase();
+        return (
+          String(launch.name || "").toLowerCase().includes(q) ||
+          String(launch.symbol || "").toLowerCase().includes(q) ||
+          String(launch.token || "").toLowerCase().includes(q)
+        );
+      });
+      if (first?.token) {
+        close();
+        openToken(first.token);
+      }
+    }
+  });
+
+  document.addEventListener("keydown", (event) => {
+    if (!state.open) return;
+    if (event.key === "Escape") {
+      event.preventDefault();
+      close();
+    }
+  });
+}

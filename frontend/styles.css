@@ -1,0 +1,280 @@
+:root {
+  --bg-1: #081019;
+  --bg-2: #141f1a;
+  --card: rgba(12, 21, 34, 0.78);
+  --text: #f8fafc;
+  --muted: #9fb2c7;
+  --accent: #35f29f;
+  --accent-2: #ff8d3a;
+  --danger: #ff5e5b;
+  --border: rgba(101, 143, 196, 0.35);
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  min-height: 100vh;
+  font-family: "Space Grotesk", "Segoe UI", sans-serif;
+  color: var(--text);
+  background:
+    radial-gradient(circle at 16% 12%, rgba(53, 242, 159, 0.18), transparent 34%),
+    radial-gradient(circle at 90% 80%, rgba(255, 141, 58, 0.13), transparent 38%),
+    linear-gradient(165deg, var(--bg-1), var(--bg-2));
+}
+
+.wrap {
+  width: min(1100px, 94vw);
+  margin: 2.2rem auto 3rem;
+}
+
+h1,
+h2,
+h3 {
+  font-family: "Bebas Neue", "Space Grotesk", sans-serif;
+  letter-spacing: 0.04em;
+  margin: 0;
+}
+
+p {
+  margin: 0;
+}
+
+.topbar {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: space-between;
+  gap: 0.8rem;
+  align-items: center;
+  margin-bottom: 1.25rem;
+}
+
+.brand {
+  display: grid;
+  gap: 0.2rem;
+}
+
+.brand h1 {
+  font-size: clamp(2.2rem, 5vw, 3.8rem);
+  line-height: 0.9;
+}
+
+.brand .tagline {
+  color: var(--muted);
+  font-size: 0.95rem;
+}
+
+.wallet {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.5rem;
+  align-items: center;
+}
+
+.wallet-picker {
+  display: grid;
+  gap: 0.2rem;
+  min-width: 145px;
+}
+
+.wallet-picker label {
+  margin: 0;
+  font-size: 0.72rem;
+}
+
+.wallet-picker select {
+  width: 100%;
+}
+
+.card {
+  border: 1px solid var(--border);
+  background: var(--card);
+  backdrop-filter: blur(14px);
+  border-radius: 18px;
+  box-shadow: 0 20px 55px rgba(0, 0, 0, 0.35);
+}
+
+.panel {
+  padding: 1rem;
+  margin-bottom: 1rem;
+}
+
+label {
+  display: block;
+  font-size: 0.82rem;
+  color: var(--muted);
+  margin-bottom: 0.25rem;
+}
+
+input,
+textarea,
+button {
+  width: 100%;
+  border-radius: 12px;
+  border: 1px solid rgba(143, 174, 208, 0.3);
+  background: rgba(9, 15, 25, 0.8);
+  color: var(--text);
+  padding: 0.65rem 0.8rem;
+  font: inherit;
+}
+
+.image-preview {
+  width: 100%;
+  max-height: 140px;
+  object-fit: contain;
+  border-radius: 12px;
+  border: 1px solid rgba(143, 174, 208, 0.3);
+  background: rgba(9, 15, 25, 0.65);
+  padding: 0.35rem;
+  display: none;
+}
+
+.launch-image {
+  width: 100%;
+  max-height: 220px;
+  object-fit: cover;
+  border-radius: 12px;
+  border: 1px solid rgba(143, 174, 208, 0.35);
+}
+
+textarea {
+  resize: vertical;
+  min-height: 76px;
+}
+
+input:focus,
+textarea:focus {
+  outline: none;
+  border-color: var(--accent);
+  box-shadow: 0 0 0 3px rgba(53, 242, 159, 0.18);
+}
+
+button {
+  cursor: pointer;
+  font-weight: 700;
+  transition: transform 150ms ease, box-shadow 150ms ease, background 150ms ease;
+}
+
+button.primary {
+  background: linear-gradient(105deg, var(--accent), #11d1f5);
+  color: #042612;
+  border: none;
+}
+
+button.secondary {
+  background: linear-gradient(115deg, var(--accent-2), #ffc74a);
+  color: #281205;
+  border: none;
+}
+
+button.ghost {
+  width: auto;
+  background: rgba(22, 33, 48, 0.95);
+  border-color: rgba(143, 174, 208, 0.4);
+}
+
+button:hover {
+  transform: translateY(-1px);
+  box-shadow: 0 8px 24px rgba(0, 0, 0, 0.24);
+}
+
+.grid {
+  display: grid;
+  gap: 0.9rem;
+}
+
+.grid.two {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.launch-list {
+  display: grid;
+  gap: 1rem;
+}
+
+.launch {
+  padding: 1rem;
+  display: grid;
+  gap: 0.85rem;
+}
+
+.launch-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 0.75rem;
+  align-items: start;
+}
+
+.launch-title {
+  display: grid;
+  gap: 0.22rem;
+}
+
+.launch-title h3 {
+  font-size: 1.65rem;
+  line-height: 0.92;
+}
+
+.muted {
+  color: var(--muted);
+  font-size: 0.87rem;
+}
+
+.pill {
+  font-size: 0.72rem;
+  color: #022815;
+  background: var(--accent);
+  padding: 0.22rem 0.5rem;
+  border-radius: 999px;
+  display: inline-block;
+  font-weight: 700;
+}
+
+.meta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.4rem 0.8rem;
+  font-size: 0.82rem;
+  color: var(--muted);
+}
+
+.trade {
+  display: grid;
+  gap: 0.55rem;
+  grid-template-columns: 1fr auto;
+}
+
+.trade button {
+  width: auto;
+  min-width: 118px;
+}
+
+.feedback {
+  min-height: 1.2rem;
+  color: #a3f2d0;
+  font-size: 0.9rem;
+}
+
+.feedback.error {
+  color: var(--danger);
+}
+
+@media (max-width: 760px) {
+  .grid.two {
+    grid-template-columns: 1fr;
+  }
+
+  .trade {
+    grid-template-columns: 1fr;
+  }
+
+  .trade button {
+    width: 100%;
+  }
+
+  .wrap {
+    margin-top: 1rem;
+  }
+}

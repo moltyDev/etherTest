@@ -1,0 +1,322 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>Etherpump.fun | Profile</title>
+    <link rel="icon" type="image/png" href="/assets/favicon.png?v=20260423c" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/assets/site.css?v=20260425c" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar">
+        <div class="sidebar-top">
+          <a class="logo" href="/">
+            <img class="logo-mark" src="/assets/etherpump-logo.png?v=20260423c" alt="Etherpump logo" />
+            <span class="logo-title">
+              <span class="logo-name">Etherpump</span><span class="logo-sep">.</span><span class="logo-tld">fun</span>
+            </span>
+          </a>
+          <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">
+            <svg viewBox="0 0 20 12" aria-hidden="true">
+              <rect x="1.5" y="1" width="1.5" height="10" rx="0.75"></rect>
+              <rect x="17" y="1" width="1.5" height="10" rx="0.75"></rect>
+              <path d="M11.2 3.2L8.2 6l3 2.8"></path>
+            </svg>
+          </button>
+        </div>
+        <nav class="side-nav">
+          <a class="side-link side-link-home" href="/">
+            <span class="side-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 10.5L12 3l9 7.5"></path>
+                <path d="M5.5 9.8V21h13V9.8"></path>
+              </svg>
+            </span>
+            <span class="side-link-label">Home</span>
+          </a>
+          <a class="side-link side-link-profile active" id="profileNavSide" href="/profile">
+            <span class="side-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8.2" r="3.7"></circle>
+                <path d="M4.6 20c1.8-3.9 4.4-5.9 7.4-5.9s5.6 2 7.4 5.9"></path>
+              </svg>
+            </span>
+            <span class="side-link-label">Profile</span>
+          </a>
+          <a class="side-link" href="https://dexscreener.com/" target="_blank" rel="noreferrer noopener">
+            <span class="side-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h16"></path>
+                <path d="M7 7v10"></path>
+                <path d="M17 7v10"></path>
+                <path d="M4 17h16"></path>
+              </svg>
+            </span>
+            <span class="side-link-label">Terminal</span>
+          </a>
+        </nav>
+        <a class="side-create-btn" href="/create">Create</a>
+        <div class="side-footer">
+          <span id="networkChip">Chain -</span>
+          <span id="factoryChip">Factory -</span>
+        </div>
+      </aside>
+
+      <main class="main-pane">
+        <div class="promo-strip">Trade faster. Track creator stats and holdings.</div>
+
+        <header class="topbar home-topbar">
+          <div class="search-wrap">
+            <input id="profileAddressInput" placeholder="Search wallet address (0x...)" />
+          </div>
+          <div class="top-actions">
+            <button id="profileLoadBtn" class="btn-ghost top-action-btn" type="button">Load</button>
+            <a class="btn-ghost top-action-btn" href="/create">+ Create</a>
+            <button id="signInBtn" class="btn-primary top-action-btn sign-in-btn" type="button">Sign in</button>
+            <div class="wallet-hub-wrap">
+              <button id="walletHubBtn" class="wallet-hub-trigger" style="display:none" type="button" aria-expanded="false" aria-controls="walletHubMenu">
+                <span class="wallet-hub-dot" aria-hidden="true"></span>
+                <span id="walletHubBalance">$0.00</span>
+                <span class="wallet-hub-caret">v</span>
+              </button>
+              <div id="walletHubMenu" class="wallet-hub-menu" role="menu">
+                <p class="wallet-hub-label">YOUR BALANCE</p>
+                <h3 id="walletHubBalanceLarge">$0.00</h3>
+                <p class="wallet-hub-sub"><span id="walletHubNative">0 ETH</span> Available</p>
+                <button id="walletHubAddressBtn" class="wallet-hub-address" type="button">Not connected</button>
+                <div class="wallet-hub-grid">
+                  <button id="walletHubDepositBtn" class="wallet-hub-card" type="button">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M12 3v10"></path>
+                        <path d="M8.5 9.5L12 13l3.5-3.5"></path>
+                        <path d="M4 17h16"></path>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>Deposit</strong>
+                      <span>Crypto transfer</span>
+                    </span>
+                  </button>
+                  <a id="walletHubTradeLink" class="wallet-hub-card" href="/">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M4 7h12"></path>
+                        <path d="M13 4l3 3-3 3"></path>
+                        <path d="M20 17H8"></path>
+                        <path d="M11 14l-3 3 3 3"></path>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>Trade</strong>
+                      <span>Browse coins</span>
+                    </span>
+                  </a>
+                  <a id="walletHubBuyLink" class="wallet-hub-card" href="https://www.moonpay.com/buy/eth" target="_blank" rel="noreferrer noopener">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <rect x="3" y="6" width="18" height="12" rx="2"></rect>
+                        <path d="M3 10h18"></path>
+                        <circle cx="8" cy="14" r="1"></circle>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>Buy crypto</strong>
+                      <span>Card / bank</span>
+                    </span>
+                  </a>
+                  <a id="walletHubHistoryLink" class="wallet-hub-card" href="/profile">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="8"></circle>
+                        <path d="M12 8v4l2.5 2.5"></path>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>History</strong>
+                      <span>All activity</span>
+                    </span>
+                  </a>
+                </div>
+              </div>
+            </div>
+            <button id="profileMenuBtn" class="profile-trigger" style="display:none" type="button" aria-expanded="false" aria-controls="profileMenu">
+              <span class="profile-avatar" id="profileAvatar">EP</span>
+              <span class="profile-name" id="profileMenuName">Guest</span>
+              <span class="profile-chevron">v</span>
+            </button>
+            <div id="profileMenu" class="profile-menu">
+              <div class="profile-menu-header">
+                <span class="profile-avatar large" id="profileAvatarLarge">EP</span>
+                <div class="profile-menu-identity">
+                  <div class="profile-menu-name-row">
+                    <strong id="profileMenuNameLarge">Guest</strong>
+                    <button id="profileShareBtn" class="profile-menu-share" type="button" aria-label="Share profile link" title="Share profile">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14 4h6v6"></path>
+                        <path d="M20 4l-9.5 9.5"></path>
+                        <path d="M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"></path>
+                      </svg>
+                    </button>
+                  </div>
+                  <small id="profileMenuMeta">0 followers</small>
+                </div>
+              </div>
+              <div class="profile-menu-wallet profile-menu-wallet-hidden">
+                <div class="profile-wallet-actions">
+                  <button id="connectBtn" class="btn-primary" type="button">Connect</button>
+                  <button id="disconnectBtn" class="btn-ghost" type="button">Disconnect</button>
+                </div>
+                <select id="walletChoice" hidden aria-hidden="true" tabindex="-1"></select>
+              </div>
+              <a class="profile-menu-link profile-menu-item" id="profileNav" href="/profile">
+                <span class="profile-menu-item-left">
+                  <span class="profile-menu-item-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="8.2" r="3.7"></circle>
+                      <path d="M4.6 20c1.8-3.9 4.4-5.9 7.4-5.9s5.6 2 7.4 5.9"></path>
+                    </svg>
+                  </span>
+                  <span>View profile</span>
+                </span>
+                <span class="profile-menu-item-arrow">></span>
+              </a>
+              <button class="profile-menu-link profile-menu-btn profile-menu-item" id="editProfileBtn" type="button">
+                <span class="profile-menu-item-left">
+                  <span class="profile-menu-item-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M4 20h4l10.2-10.2a1.8 1.8 0 0 0 0-2.5l-1.5-1.5a1.8 1.8 0 0 0-2.5 0L4 16v4"></path>
+                      <path d="M12.4 7.6l4 4"></path>
+                    </svg>
+                  </span>
+                  <span>Edit profile</span>
+                </span>
+                <span class="profile-menu-item-arrow">></span>
+              </button>
+              <button class="profile-menu-link profile-menu-btn profile-menu-item profile-menu-item-danger" id="menuLogoutBtn" type="button">Log out</button>
+            </div>
+          </div>
+        </header>
+
+        <section class="content-section">
+          <article class="panel-card profile-layout-grid">
+            <div class="profile-left-pane">
+              <div class="profile-hero-main">
+                <span id="profileHeroAvatar" class="profile-avatar profile-hero-avatar">EP</span>
+                <div class="profile-hero-text">
+                  <h2 id="profileResolvedName">Guest</h2>
+                  <div class="profile-address-row">
+                    <p id="profileResolvedAddress">No address loaded</p>
+                    <button id="profileCopyAddressBtn" class="addr-copy-btn copy-pill-btn" type="button" hidden>Copy</button>
+                    <a
+                      id="profileEtherscanLink"
+                      class="profile-etherscan-link"
+                      href="#"
+                      target="_blank"
+                      rel="noreferrer noopener"
+                      hidden
+                    >
+                      Etherscan
+                    </a>
+                  </div>
+                </div>
+              </div>
+              <div class="profile-stat-row">
+                <article class="profile-stat-item"><small>Followers</small><b id="statFollowers">0</b></article>
+                <article class="profile-stat-item"><small>Following</small><b id="statFollowing">0</b></article>
+                <article class="profile-stat-item"><small>Created coins</small><b id="statCreated">0</b></article>
+                <article class="profile-stat-item"><small>Portfolio</small><b id="statValue">0 ETH</b></article>
+              </div>
+            </div>
+            <aside class="profile-created-pane">
+              <div class="profile-created-head">
+                <h3>Created coins</h3>
+                <span id="createdCountInline">0</span>
+              </div>
+              <div id="createdMiniList" class="profile-mini-list"></div>
+            </aside>
+          </article>
+        </section>
+
+        <section class="content-section">
+          <div class="profile-tabs" id="profileTabs">
+            <button class="profile-tab active" data-tab="balances" type="button">Balances</button>
+            <button class="profile-tab" data-tab="coins" type="button">Coins</button>
+            <button class="profile-tab" data-tab="creatorRewards" type="button">Creator Rewards</button>
+            <button class="profile-tab" data-tab="notifications" type="button">Notifications</button>
+            <button class="profile-tab" data-tab="followers" type="button">Followers</button>
+          </div>
+          <article class="panel-card">
+            <div id="profileTabContent"></div>
+          </article>
+        </section>
+
+        <p id="alert" class="alert"></p>
+      </main>
+    </div>
+
+    <div id="depositModal" class="modal-overlay" aria-hidden="true">
+      <div class="modal-card deposit-modal-card">
+        <div class="edit-profile-head">
+          <h3>Deposit</h3>
+          <button id="depositCloseBtn" class="btn-ghost" type="button">X</button>
+        </div>
+        <p>Send ETH on Ethereum network to your wallet address.</p>
+        <div class="deposit-modal-grid">
+          <div>
+            <small class="muted">YOUR ETHEREUM DEPOSIT ADDRESS</small>
+            <code id="depositAddressText" class="deposit-address-code">Not connected</code>
+            <button id="depositCopyBtn" class="btn-primary" type="button">Copy address</button>
+          </div>
+          <div class="deposit-qr-wrap">
+            <img id="depositQrImage" alt="Deposit wallet QR code" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="editProfileModal" class="modal-overlay" aria-hidden="true">
+      <div class="modal-card edit-profile-card">
+        <div class="edit-profile-head">
+          <h3>Edit profile</h3>
+          <button id="closeEditProfileModal" class="btn-ghost" type="button">X</button>
+        </div>
+        <p>Update how you appear across Etherpump.fun.</p>
+        <div class="edit-avatar-row">
+          <span id="editAvatarPreview" class="profile-avatar large edit-avatar-preview">EP</span>
+          <div class="edit-avatar-actions">
+            <button id="editAvatarPickBtn" class="btn-ghost" type="button">Choose image</button>
+            <button id="editAvatarRemoveBtn" class="btn-ghost" type="button">Remove</button>
+          </div>
+        </div>
+        <input id="editAvatarFile" type="file" accept="image/*" hidden />
+        <label>
+          Username
+          <input id="editUsername" maxlength="24" placeholder="Choose username" />
+        </label>
+        <label>
+          Bio
+          <textarea id="editBio" placeholder="Describe your profile"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button id="saveEditProfileBtn" class="btn-primary" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/js/sidebar.js?v=20260425g"></script>
+    <script type="module" src="/js/profile.js?v=20260425f"></script>
+  </body>
+</html>
+
+
+
+
+

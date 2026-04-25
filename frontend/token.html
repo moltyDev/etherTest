@@ -1,0 +1,450 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate" />
+    <meta http-equiv="Pragma" content="no-cache" />
+    <meta http-equiv="Expires" content="0" />
+    <title>Etherpump.fun | Token</title>
+    <link rel="icon" type="image/png" href="/assets/favicon.png?v=20260423c" />
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
+    <link rel="stylesheet" href="/assets/site.css?v=20260425c" />
+  </head>
+  <body>
+    <div class="app-shell">
+      <aside class="sidebar" id="appSidebar">
+        <div class="sidebar-top">
+          <a class="logo" href="/">
+            <img class="logo-mark" src="/assets/etherpump-logo.png?v=20260423c" alt="Etherpump logo" />
+            <span class="logo-title">
+              <span class="logo-name">Etherpump</span><span class="logo-sep">.</span><span class="logo-tld">fun</span>
+            </span>
+          </a>
+          <button class="sidebar-toggle" id="sidebarToggle" type="button" aria-label="Collapse sidebar" aria-expanded="true">
+            <svg viewBox="0 0 20 12" aria-hidden="true">
+              <rect x="1.5" y="1" width="1.5" height="10" rx="0.75"></rect>
+              <rect x="17" y="1" width="1.5" height="10" rx="0.75"></rect>
+              <path d="M11.2 3.2L8.2 6l3 2.8"></path>
+            </svg>
+          </button>
+        </div>
+        <nav class="side-nav">
+          <a class="side-link side-link-home" href="/">
+            <span class="side-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M3 10.5L12 3l9 7.5"></path>
+                <path d="M5.5 9.8V21h13V9.8"></path>
+              </svg>
+            </span>
+            <span class="side-link-label">Home</span>
+          </a>
+          <a class="side-link side-link-profile" id="profileNavSide" href="/profile">
+            <span class="side-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.1" stroke-linecap="round" stroke-linejoin="round">
+                <circle cx="12" cy="8.2" r="3.7"></circle>
+                <path d="M4.6 20c1.8-3.9 4.4-5.9 7.4-5.9s5.6 2 7.4 5.9"></path>
+              </svg>
+            </span>
+            <span class="side-link-label">Profile</span>
+          </a>
+          <a class="side-link" href="https://dexscreener.com/" target="_blank" rel="noreferrer noopener">
+            <span class="side-icon" aria-hidden="true">
+              <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+                <path d="M4 7h16"></path>
+                <path d="M7 7v10"></path>
+                <path d="M17 7v10"></path>
+                <path d="M4 17h16"></path>
+              </svg>
+            </span>
+            <span class="side-link-label">Terminal</span>
+          </a>
+        </nav>
+        <a class="side-create-btn" href="/create">Create</a>
+        <div class="side-footer">
+          <span id="networkChip">Chain -</span>
+          <span id="factoryChip">Factory -</span>
+        </div>
+      </aside>
+
+      <main class="main-pane">
+        <div class="promo-strip">Trade faster. Instant Uniswap trading on Ethereum.</div>
+
+        <header class="topbar create-topbar">
+          <div class="create-searchbar">
+            <a href="/" class="create-back-btn" aria-label="Back to home">&larr;</a>
+            <input id="tokenSearchInput" placeholder="Search for coins..." />
+          </div>
+          <div class="top-actions">
+            <a class="btn-ghost top-action-btn" href="/create">+ Create</a>
+            <button id="signInBtn" class="btn-primary top-action-btn sign-in-btn" type="button">Sign in</button>
+            <div class="wallet-hub-wrap">
+              <button id="walletHubBtn" class="wallet-hub-trigger" style="display:none" type="button" aria-expanded="false" aria-controls="walletHubMenu">
+                <span class="wallet-hub-dot" aria-hidden="true"></span>
+                <span id="walletHubBalance">$0.00</span>
+                <span class="wallet-hub-caret">v</span>
+              </button>
+              <div id="walletHubMenu" class="wallet-hub-menu" role="menu">
+                <p class="wallet-hub-label">YOUR BALANCE</p>
+                <h3 id="walletHubBalanceLarge">$0.00</h3>
+                <p class="wallet-hub-sub"><span id="walletHubNative">0 ETH</span> Available</p>
+                <button id="walletHubAddressBtn" class="wallet-hub-address" type="button">Not connected</button>
+                <div class="wallet-hub-grid">
+                  <button id="walletHubDepositBtn" class="wallet-hub-card" type="button">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M12 3v10"></path>
+                        <path d="M8.5 9.5L12 13l3.5-3.5"></path>
+                        <path d="M4 17h16"></path>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>Deposit</strong>
+                      <span>Crypto transfer</span>
+                    </span>
+                  </button>
+                  <a id="walletHubTradeLink" class="wallet-hub-card" href="/">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <path d="M4 7h12"></path>
+                        <path d="M13 4l3 3-3 3"></path>
+                        <path d="M20 17H8"></path>
+                        <path d="M11 14l-3 3 3 3"></path>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>Trade</strong>
+                      <span>Browse coins</span>
+                    </span>
+                  </a>
+                  <a id="walletHubBuyLink" class="wallet-hub-card" href="https://www.moonpay.com/buy/eth" target="_blank" rel="noreferrer noopener">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <rect x="3" y="6" width="18" height="12" rx="2"></rect>
+                        <path d="M3 10h18"></path>
+                        <circle cx="8" cy="14" r="1"></circle>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>Buy crypto</strong>
+                      <span>Card / bank</span>
+                    </span>
+                  </a>
+                  <a id="walletHubHistoryLink" class="wallet-hub-card" href="/profile">
+                    <span class="wallet-hub-icon" aria-hidden="true">
+                      <svg viewBox="0 0 24 24">
+                        <circle cx="12" cy="12" r="8"></circle>
+                        <path d="M12 8v4l2.5 2.5"></path>
+                      </svg>
+                    </span>
+                    <span class="wallet-hub-copy">
+                      <strong>History</strong>
+                      <span>All activity</span>
+                    </span>
+                  </a>
+                </div>
+              </div>
+            </div>
+            <button id="profileMenuBtn" class="profile-trigger" style="display:none" type="button" aria-expanded="false" aria-controls="profileMenu">
+              <span class="profile-avatar" id="profileAvatar">EP</span>
+              <span class="profile-name" id="profileMenuName">Guest</span>
+              <span class="profile-chevron">v</span>
+            </button>
+            <div id="profileMenu" class="profile-menu">
+              <div class="profile-menu-header">
+                <span class="profile-avatar large" id="profileAvatarLarge">EP</span>
+                <div class="profile-menu-identity">
+                  <div class="profile-menu-name-row">
+                    <strong id="profileMenuNameLarge">Guest</strong>
+                    <button id="profileShareBtn" class="profile-menu-share" type="button" aria-label="Share profile link" title="Share profile">
+                      <svg viewBox="0 0 24 24" aria-hidden="true">
+                        <path d="M14 4h6v6"></path>
+                        <path d="M20 4l-9.5 9.5"></path>
+                        <path d="M20 13v5a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2V6a2 2 0 0 1 2-2h5"></path>
+                      </svg>
+                    </button>
+                  </div>
+                  <small id="profileMenuMeta">0 followers</small>
+                </div>
+              </div>
+              <div class="profile-menu-wallet profile-menu-wallet-hidden">
+                <div class="profile-wallet-actions">
+                  <button id="connectBtn" class="btn-primary" type="button">Connect</button>
+                  <button id="disconnectBtn" class="btn-ghost" type="button">Disconnect</button>
+                </div>
+                <select id="walletChoice" hidden aria-hidden="true" tabindex="-1"></select>
+              </div>
+              <a class="profile-menu-link profile-menu-item" id="profileNav" href="/profile">
+                <span class="profile-menu-item-left">
+                  <span class="profile-menu-item-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <circle cx="12" cy="8.2" r="3.7"></circle>
+                      <path d="M4.6 20c1.8-3.9 4.4-5.9 7.4-5.9s5.6 2 7.4 5.9"></path>
+                    </svg>
+                  </span>
+                  <span>View profile</span>
+                </span>
+                <span class="profile-menu-item-arrow">></span>
+              </a>
+              <button class="profile-menu-link profile-menu-btn profile-menu-item" id="editProfileBtn" type="button">
+                <span class="profile-menu-item-left">
+                  <span class="profile-menu-item-icon" aria-hidden="true">
+                    <svg viewBox="0 0 24 24">
+                      <path d="M4 20h4l10.2-10.2a1.8 1.8 0 0 0 0-2.5l-1.5-1.5a1.8 1.8 0 0 0-2.5 0L4 16v4"></path>
+                      <path d="M12.4 7.6l4 4"></path>
+                    </svg>
+                  </span>
+                  <span>Edit profile</span>
+                </span>
+                <span class="profile-menu-item-arrow">></span>
+              </button>
+              <button class="profile-menu-link profile-menu-btn profile-menu-item profile-menu-item-danger" id="menuLogoutBtn" type="button">Log out</button>
+            </div>
+          </div>
+        </header>
+
+        <section class="tokenpf-layout">
+          <div class="tokenpf-main">
+            <article class="panel-card tokenpf-header-card">
+              <div class="tokenpf-head-main">
+                <img id="tokenImage" class="tokenpf-token-img" alt="Token image" />
+                <div class="tokenpf-head-copy">
+                  <h1 id="tokenTitle">Token</h1>
+                  <p id="tokenSymbolLine">---</p>
+                  <div id="tokenCreatorInfo" class="token-creator-info"></div>
+                </div>
+              </div>
+              <div class="tokenpf-head-actions">
+                <button id="shareTokenBtn" class="btn-primary small" type="button">Share</button>
+                <button id="copyTokenBtn" class="btn-ghost small copy-pill-btn" type="button">Copy token</button>
+              </div>
+            </article>
+
+            <article class="panel-card tokenpf-chart-card">
+              <div class="tokenpf-mcap-head">
+                <div>
+                  <small>Market Cap</small>
+                  <h2 id="marketCapHeadline">-</h2>
+                  <p id="marketCapDelta24h" class="delta-line">-</p>
+                </div>
+                <div class="tokenpf-ath-wrap">
+                  <div class="tokenpf-ath-track"><div id="athFill"></div></div>
+                  <span>ATH <b id="athLabel">-</b></span>
+                </div>
+              </div>
+
+              <div class="tokenpf-chart-topline">
+                <div class="toolbar-group">
+                  <button class="tag active" type="button" data-range="4h">4h</button>
+                  <button class="tag" type="button" data-range="1h">1h</button>
+                  <button class="tag" type="button" data-range="24h">24h</button>
+                  <button class="tag" type="button" data-range="all">All</button>
+                </div>
+                <div class="toolbar-group">
+                  <button class="tag active" type="button" data-mode="mcap">Price/MCap</button>
+                  <button class="tag" type="button" data-mode="price">Price</button>
+                </div>
+              </div>
+
+              <div class="tokenpf-ohlc" id="chartLegend">
+                <span id="chartPairLabel">---</span>
+                <span>O <b id="chartOpen">-</b></span>
+                <span>H <b id="chartHigh">-</b></span>
+                <span>L <b id="chartLow">-</b></span>
+                <span>C <b id="chartClose">-</b></span>
+                <span>Vol <b id="chartVolume">-</b></span>
+              </div>
+
+              <div class="tokenpf-chart-shell">
+                <aside class="tokenpf-tools">
+                  <button type="button">&#9474;</button>
+                  <button type="button">/</button>
+                  <button type="button">~</button>
+                  <button type="button">T</button>
+                  <button type="button">+</button>
+                  <button type="button">o</button>
+                </aside>
+                <div class="tokenpf-chart-wrap">
+                  <div id="priceChart" class="tokenpf-chart-canvas"></div>
+                </div>
+              </div>
+            </article>
+
+            <section class="tokenpf-stat-strip">
+              <article class="stat-card"><small>Vol 24h</small><b id="volume24h">-</b></article>
+              <article class="stat-card"><small>Price</small><b id="lastPrice">-</b></article>
+              <article class="stat-card"><small>5m</small><b id="delta5m">-</b></article>
+              <article class="stat-card"><small>1h</small><b id="delta1h">-</b></article>
+              <article class="stat-card"><small>6h</small><b id="delta6h">-</b></article>
+            </section>
+
+            <article class="panel-card tokenpf-terminal">
+              <small>View on Terminal</small>
+              <a id="terminalLink" href="https://dexscreener.com/" target="_blank" rel="noreferrer noopener">Open dexscreener</a>
+            </article>
+
+            <article class="panel-card tokenpf-trades">
+              <div class="tokenpf-trade-filter">
+                <span>Filter by size</span>
+                <label class="switch">
+                  <input id="tradeFilterEnabled" type="checkbox" />
+                  <span class="slider"></span>
+                </label>
+                <input id="tradeFilterMin" type="number" min="0" step="0.01" value="0.05" />
+                <span class="muted">(showing trades greater than selected ETH)</span>
+              </div>
+              <div class="table-wrap">
+                <table class="table">
+                  <thead>
+                    <tr>
+                      <th>Account</th>
+                      <th>Type</th>
+                      <th>Amount (ETH)</th>
+                      <th>Amount</th>
+                      <th>Time</th>
+                      <th>Txn</th>
+                    </tr>
+                  </thead>
+                  <tbody id="tradeTableBody"></tbody>
+                </table>
+              </div>
+            </article>
+          </div>
+
+          <aside class="tokenpf-side">
+            <article class="panel-card tokenpf-trade-card">
+              <div class="tokenpf-buy-sell-tabs">
+                <button class="active" id="buyTabBtn" type="button">Buy</button>
+                <button id="sellTabBtn" type="button">Sell</button>
+              </div>
+              <div class="tokenpf-trade-quick">
+                <button type="button" data-quick-eth="0.1">0.1 ETH</button>
+                <button type="button" data-quick-eth="0.5">0.5 ETH</button>
+                <button type="button" data-quick-eth="1">1 ETH</button>
+                <button type="button" data-quick-eth="max">Max ETH</button>
+              </div>
+              <div class="tokenpf-trade-quick tokenpf-trade-quick-token">
+                <button type="button" data-quick-token="1000">1K TOK</button>
+                <button type="button" data-quick-token="10000">10K TOK</button>
+                <button type="button" data-quick-token="100000">100K TOK</button>
+                <button type="button" data-quick-token="max">Max TOK</button>
+              </div>
+              <div class="tokenpf-wallet-balance">
+                Balance: <b id="walletBalance">0 ETH</b>
+              </div>
+              <div id="buyFields" class="tokenpf-trade-fields">
+                <label class="tokenpf-trade-field-label" for="buyInput">Pay (ETH)</label>
+                <input id="buyInput" class="tokenpf-trade-input" type="number" min="0" step="0.00000001" placeholder="ETH amount" />
+                <label class="tokenpf-trade-field-label" for="buyTokenInput">Receive (~tokens)</label>
+                <input id="buyTokenInput" class="tokenpf-trade-input" type="number" min="0" step="0.0001" placeholder="Token amount" />
+              </div>
+              <button id="buyBtn" class="btn-primary" type="button">Buy</button>
+              <div id="sellFields" class="tokenpf-trade-fields">
+                <label class="tokenpf-trade-field-label" for="sellInput">Sell (tokens)</label>
+                <input id="sellInput" class="tokenpf-trade-input" type="number" min="0" step="0.0001" placeholder="Token amount" />
+                <label class="tokenpf-trade-field-label" for="sellEthInput">Receive (~ETH)</label>
+                <input id="sellEthInput" class="tokenpf-trade-input" type="number" min="0" step="0.00000001" placeholder="ETH amount" />
+              </div>
+              <button id="sellBtn" class="btn-danger" type="button">Sell</button>
+            </article>
+
+            <article class="panel-card tokenpf-side-card">
+              <div class="tokenpf-side-head">
+                <h3>Creator rewards</h3>
+                <span>Coin timeline</span>
+              </div>
+              <div class="tokenpf-reward-row">
+                <a id="creatorProfileLink" class="tokenpf-reward-profile" href="/profile">
+                  <span id="creatorRewardAvatar" class="token-creator-avatar tokenpf-reward-avatar">CR</span>
+                  <span class="tokenpf-reward-copy">
+                    <strong id="creatorLabel">Creator</strong>
+                    <span id="creatorAddressLine" class="tokenpf-reward-sub">0x... </span>
+                  </span>
+                </a>
+                <span id="creatorShare" hidden></span>
+                <a id="openCreator" class="btn-ghost tiny" href="/profile">Follow</a>
+              </div>
+            </article>
+
+            <article class="panel-card tokenpf-side-card">
+              <div class="tokenpf-side-head">
+                <h3>DEX pool status</h3>
+                <b id="bondingProgressLabel">-</b>
+              </div>
+              <div class="bonding-line"><div id="bondingProgressFill" style="width: 0%"></div></div>
+              <p id="bondingStatusText" class="muted">Waiting for Uniswap pair.</p>
+            </article>
+
+            <article class="panel-card tokenpf-side-card">
+              <div class="tokenpf-side-head">
+                <h3>Top holders</h3>
+                <button class="btn-ghost tiny" type="button">Bubble map</button>
+              </div>
+              <div id="topHoldersList" class="tokenpf-holders-list"></div>
+            </article>
+          </aside>
+        </section>
+
+        <p id="alert" class="alert"></p>
+      </main>
+    </div>
+
+    <div id="depositModal" class="modal-overlay" aria-hidden="true">
+      <div class="modal-card deposit-modal-card">
+        <div class="edit-profile-head">
+          <h3>Deposit</h3>
+          <button id="depositCloseBtn" class="btn-ghost" type="button">X</button>
+        </div>
+        <p>Send ETH on Ethereum network to your wallet address.</p>
+        <div class="deposit-modal-grid">
+          <div>
+            <small class="muted">YOUR ETHEREUM DEPOSIT ADDRESS</small>
+            <code id="depositAddressText" class="deposit-address-code">Not connected</code>
+            <button id="depositCopyBtn" class="btn-primary" type="button">Copy address</button>
+          </div>
+          <div class="deposit-qr-wrap">
+            <img id="depositQrImage" alt="Deposit wallet QR code" />
+          </div>
+        </div>
+      </div>
+    </div>
+
+    <div id="editProfileModal" class="modal-overlay" aria-hidden="true">
+      <div class="modal-card edit-profile-card">
+        <div class="edit-profile-head">
+          <h3>Edit profile</h3>
+          <button id="closeEditProfileModal" class="btn-ghost" type="button">X</button>
+        </div>
+        <p>Update how you appear across Etherpump.fun.</p>
+        <div class="edit-avatar-row">
+          <span id="editAvatarPreview" class="profile-avatar large edit-avatar-preview">EP</span>
+          <div class="edit-avatar-actions">
+            <button id="editAvatarPickBtn" class="btn-ghost" type="button">Choose image</button>
+            <button id="editAvatarRemoveBtn" class="btn-ghost" type="button">Remove</button>
+          </div>
+        </div>
+        <input id="editAvatarFile" type="file" accept="image/*" hidden />
+        <label>
+          Username
+          <input id="editUsername" maxlength="24" placeholder="Choose username" />
+        </label>
+        <label>
+          Bio
+          <textarea id="editBio" placeholder="Describe your profile"></textarea>
+        </label>
+        <div class="modal-actions">
+          <button id="saveEditProfileBtn" class="btn-primary" type="button">Save</button>
+        </div>
+      </div>
+    </div>
+
+    <script src="/js/sidebar.js?v=20260425g"></script>
+    <script src="https://unpkg.com/lightweight-charts@4.2.0/dist/lightweight-charts.standalone.production.js"></script>
+    <script type="module" src="/js/token.js?v=20260425h"></script>
+  </body>
+</html>
+
+
+

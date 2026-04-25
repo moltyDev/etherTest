@@ -1,0 +1,10 @@
+node_modules/
+cache/
+artifacts/
+coverage/
+.env
+frontend/.DS_Store
+*.log
+*.out.log
+*.err.log
+tmp*.log

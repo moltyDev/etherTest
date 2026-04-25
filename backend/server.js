@@ -21,6 +21,7 @@ const MONGODB_URI = String(process.env.MONGODB_URI || "").trim();
 const MONGODB_DB_NAME = String(process.env.MONGODB_DB_NAME || "etherpump").trim();
 const MONGODB_PROFILE_COLLECTION = String(process.env.MONGODB_PROFILE_COLLECTION || "user_profiles").trim();
 const PROFILE_IMAGE_URI_MAX_LENGTH = 2 * 1024 * 1024;
+const STRICT_PROFILE_STORE = String(process.env.STRICT_PROFILE_STORE || (IS_VERCEL_RUNTIME ? "1" : "0")) === "1";
 // Vercel runtime filesystem is ephemeral/read-only for project paths. Force inline mode there.
 const USE_DISK_UPLOADS = !IS_VERCEL_RUNTIME && UPLOAD_MODE !== "inline";
 
@@ -91,6 +92,7 @@ const geckoIndexedSticky = new Set();
 const pairTradesCache = new Map();
 let profileDbCache = null;
 let mongoProfileCollectionPromise = null;
+let mongoProfileCollectionClient = null;
 
 function getCachedValue(cache, key) {
   const row = cache.get(key);
@@ -469,39 +471,68 @@ function setPersistedProfileSync(address, value = {}) {
 
 async function getMongoProfileCollection() {
   if (!MONGODB_URI) return null;
-  if (!mongoProfileCollectionPromise) {
-    mongoProfileCollectionPromise = (async () => {
-      try {
-        const { MongoClient } = require("mongodb");
-        const client = new MongoClient(MONGODB_URI, {
-          serverSelectionTimeoutMS: 4000,
-          maxPoolSize: 4
-        });
-        await client.connect();
-        const db = client.db(MONGODB_DB_NAME || "etherpump");
-        return db.collection(MONGODB_PROFILE_COLLECTION || "user_profiles");
-      } catch {
-        return null;
-      }
-    })();
+  if (mongoProfileCollectionPromise) {
+    try {
+      return await mongoProfileCollectionPromise;
+    } catch {
+      mongoProfileCollectionPromise = null;
+      mongoProfileCollectionClient = null;
+    }
   }
-  return mongoProfileCollectionPromise;
+
+  mongoProfileCollectionPromise = (async () => {
+    const { MongoClient } = require("mongodb");
+    const client = new MongoClient(MONGODB_URI, {
+      serverSelectionTimeoutMS: 5000,
+      maxPoolSize: 6
+    });
+    await client.connect();
+    mongoProfileCollectionClient = client;
+    const db = client.db(MONGODB_DB_NAME || "etherpump");
+    return db.collection(MONGODB_PROFILE_COLLECTION || "user_profiles");
+  })();
+
+  try {
+    return await mongoProfileCollectionPromise;
+  } catch (error) {
+    mongoProfileCollectionPromise = null;
+    mongoProfileCollectionClient = null;
+    throw error;
+  }
+}
+
+function allowFileProfileFallback() {
+  // Local/dev can fall back to file store. Production serverless should be strict.
+  if (STRICT_PROFILE_STORE) return false;
+  return true;
+}
+
+function assertProfileStoreConfigured() {
+  if (!STRICT_PROFILE_STORE) return;
+  if (!MONGODB_URI) {
+    throw new Error("Profile store requires MONGODB_URI in strict mode");
+  }
 }
 
 async function getPersistedProfile(address) {
   const normalized = normalizeAddress(address);
   if (!normalized) return sanitizeProfileValue("", {});
 
-  const mongo = await getMongoProfileCollection();
-  if (mongo) {
-    try {
+  assertProfileStoreConfigured();
+
+  try {
+    const mongo = await getMongoProfileCollection();
+    if (mongo) {
       const key = normalized.toLowerCase();
       const row = await mongo.findOne({ _id: key });
       if (row) {
         return sanitizeProfileValue(normalized, row);
       }
-    } catch {
-      // fall through to file
+      return sanitizeProfileValue(normalized, {});
+    }
+  } catch (error) {
+    if (!allowFileProfileFallback()) {
+      throw new Error(`Mongo profile read failed: ${error?.message || "connection error"}`);
     }
   }
 
@@ -512,9 +543,11 @@ async function getPersistedProfiles(addresses = []) {
   const normalized = [...new Set((Array.isArray(addresses) ? addresses : []).map((row) => normalizeAddress(row)).filter(Boolean))];
   if (!normalized.length) return {};
 
-  const mongo = await getMongoProfileCollection();
-  if (mongo) {
-    try {
+  assertProfileStoreConfigured();
+
+  try {
+    const mongo = await getMongoProfileCollection();
+    if (mongo) {
       const keys = normalized.map((row) => row.toLowerCase());
       const rows = await mongo.find({ _id: { $in: keys } }).toArray();
       const byId = new Map(rows.map((row) => [String(row?._id || "").toLowerCase(), row]));
@@ -524,8 +557,10 @@ async function getPersistedProfiles(addresses = []) {
         out[key] = sanitizeProfileValue(address, byId.get(key) || {});
       }
       return out;
-    } catch {
-      // fall through to file
+    }
+  } catch (error) {
+    if (!allowFileProfileFallback()) {
+      throw new Error(`Mongo profile batch read failed: ${error?.message || "connection error"}`);
     }
   }
 
@@ -538,9 +573,11 @@ async function setPersistedProfile(address, value = {}) {
   const key = normalized.toLowerCase();
   const next = sanitizeProfileValue(normalized, value);
 
-  const mongo = await getMongoProfileCollection();
-  if (mongo) {
-    try {
+  assertProfileStoreConfigured();
+
+  try {
+    const mongo = await getMongoProfileCollection();
+    if (mongo) {
       await mongo.updateOne(
         { _id: key },
         {
@@ -548,14 +585,20 @@ async function setPersistedProfile(address, value = {}) {
             address: next.address,
             username: next.username,
             bio: next.bio,
-            imageUri: next.imageUri
+            imageUri: next.imageUri,
+            updatedAt: new Date()
+          },
+          $setOnInsert: {
+            createdAt: new Date()
           }
         },
         { upsert: true }
       );
       return next;
-    } catch {
-      // fall through to file
+    }
+  } catch (error) {
+    if (!allowFileProfileFallback()) {
+      throw new Error(`Mongo profile write failed: ${error?.message || "connection error"}`);
     }
   }
 

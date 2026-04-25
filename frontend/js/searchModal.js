@@ -13,6 +13,7 @@ const GECKO_NETWORK_CANDIDATES = {
 };
 const sparklineCache = new Map();
 const sparklineInflight = new Map();
+const ETH_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
 function readList(key) {
   try {
@@ -35,6 +36,27 @@ function creatorHandle(address) {
   if (!address) return "anon";
   const profile = loadUserProfile(address);
   return profile.username || defaultUsername(address);
+}
+
+function normalizeWalletQuery(query = "") {
+  const text = String(query || "").trim();
+  if (!ETH_ADDRESS_REGEX.test(text)) return "";
+  return text.toLowerCase();
+}
+
+function profileAvatarDataUri(label = "EP") {
+  const text = String(label || "EP").slice(0, 2).toUpperCase();
+  const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 96 96'>
+    <defs>
+      <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
+        <stop offset='0%' stop-color='#9f8cff'/>
+        <stop offset='100%' stop-color='#6f7cff'/>
+      </linearGradient>
+    </defs>
+    <rect width='96' height='96' rx='48' fill='url(#g)'/>
+    <text x='48' y='56' text-anchor='middle' fill='white' font-family='Arial' font-size='30' font-weight='700'>${text}</text>
+  </svg>`;
+  return `data:image/svg+xml;charset=utf-8,${encodeURIComponent(svg)}`;
 }
 
 function trimText(value, max = 32) {
@@ -195,7 +217,8 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
     launches: [],
     ethUsd: 3000,
     loading: false,
-    loaded: false
+    loaded: false,
+    lastAddressLookup: ""
   };
 
   const overlay = document.createElement("div");
@@ -250,6 +273,37 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
         `;
       })
       .join("");
+  }
+
+  function renderProfileResult(address) {
+    const profile = loadUserProfile(address);
+    const username = profile.username || defaultUsername(address);
+    const avatar = profile.imageUri || profileAvatarDataUri(username);
+    return `
+      <button class="coin-search-row" type="button" data-open-profile="${address}">
+        <img src="${avatar}" alt="${username} avatar" />
+        <div class="coin-search-row-copy">
+          <strong>${trimText(username, 34)}</strong>
+          <span>${trimText(address, 28)}</span>
+        </div>
+        <b>Profile</b>
+      </button>
+    `;
+  }
+
+  async function ensureWalletProfile(address) {
+    const normalized = normalizeWalletQuery(address);
+    if (!normalized) return;
+    if (state.lastAddressLookup === normalized) return;
+    state.lastAddressLookup = normalized;
+    try {
+      await hydrateUserProfiles([normalized], { force: true });
+    } catch {
+      // best effort
+    }
+    if (state.open) {
+      renderBody();
+    }
   }
 
   function renderHotCoins() {
@@ -356,6 +410,7 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
 
   function renderBody() {
     const query = state.query.toLowerCase();
+    const walletAddress = normalizeWalletQuery(state.query);
     const hasQuery = Boolean(query);
     const filtered = hasQuery
       ? state.launches.filter((launch) => {
@@ -369,12 +424,14 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
       : [];
 
     if (hasQuery) {
+      const profileSection = walletAddress ? renderProfileResult(walletAddress) : "";
       body.innerHTML = `
         <section class="coin-search-section">
           <div class="coin-search-section-head">
             <h5>SEARCH RESULTS</h5>
           </div>
           <div class="coin-search-list">
+            ${profileSection}
             ${renderResults(filtered)}
           </div>
         </section>
@@ -437,6 +494,12 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
     input.value = state.query;
     if (state.loaded) {
       renderBody();
+      const walletAddress = normalizeWalletQuery(state.query);
+      if (walletAddress) {
+        ensureWalletProfile(walletAddress).catch(() => {
+          // best effort
+        });
+      }
     } else {
       renderEmpty();
       ensureData().catch(() => {
@@ -473,6 +536,17 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
       return;
     }
 
+    const openProfileBtn = event.target.closest("[data-open-profile]");
+    if (openProfileBtn) {
+      const address = String(openProfileBtn.dataset.openProfile || "").trim();
+      if (address) {
+        addRecentSearch(state.query || address);
+        close();
+        window.location.href = `/profile?address=${address}`;
+      }
+      return;
+    }
+
     const fillTermBtn = event.target.closest("[data-fill-term]");
     if (fillTermBtn) {
       const term = String(fillTermBtn.dataset.fillTerm || "");
@@ -498,6 +572,12 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
   input.addEventListener("input", () => {
     state.query = input.value.trim();
     renderBody();
+    const walletAddress = normalizeWalletQuery(state.query);
+    if (walletAddress) {
+      ensureWalletProfile(walletAddress).catch(() => {
+        // best effort
+      });
+    }
   });
 
   input.addEventListener("keydown", (event) => {
@@ -511,6 +591,12 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
       const query = state.query.trim();
       if (!query) return;
       addRecentSearch(query);
+      const walletAddress = normalizeWalletQuery(query);
+      if (walletAddress) {
+        close();
+        window.location.href = `/profile?address=${walletAddress}`;
+        return;
+      }
       const first = state.launches.find((launch) => {
         const q = query.toLowerCase();
         return (

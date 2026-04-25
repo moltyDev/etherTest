@@ -11,12 +11,56 @@
           "frontend/**"
         ]
       }
+    },
+    {
+      "src": "frontend/**",
+      "use": "@vercel/static"
     }
   ],
   "routes": [
     {
-      "src": "/(.*)",
+      "src": "/api/(.*)",
       "dest": "backend/server.js"
+    },
+    {
+      "src": "/assets/(.*)",
+      "dest": "/frontend/assets/$1"
+    },
+    {
+      "src": "/js/(.*)",
+      "dest": "/frontend/js/$1"
+    },
+    {
+      "src": "/uploads/(.*)",
+      "dest": "/frontend/uploads/$1"
+    },
+    {
+      "src": "/(favicon\\.ico|robots\\.txt)",
+      "dest": "/frontend/$1"
+    },
+    {
+      "src": "/create$",
+      "dest": "/frontend/create.html"
+    },
+    {
+      "src": "/token$",
+      "dest": "/frontend/token.html"
+    },
+    {
+      "src": "/profile$",
+      "dest": "/frontend/profile.html"
+    },
+    {
+      "src": "/home$",
+      "dest": "/frontend/index.html"
+    },
+    {
+      "src": "/$",
+      "dest": "/frontend/index.html"
+    },
+    {
+      "src": "/(.*)",
+      "dest": "/frontend/index.html"
     }
   ]
 }

@@ -49,6 +49,9 @@ const state = {
 };
 
 const walletListenersAttached = new WeakSet();
+const eip6963Providers = new Map();
+let eip6963Listening = false;
+let eip6963Requested = false;
 const WALLET_SESSION_KEY = "etherpump.wallet.session.v1";
 const PROFILE_STORAGE_KEY = "etherpump.profile.v1";
 const ETH_USD_CACHE_KEY = "etherpump.ethusd.v1";
@@ -309,26 +312,72 @@ export function resolveCoinImage(coin) {
   return makeFallbackImage(coin?.name || "", coin?.symbol || "");
 }
 
-function getWalletMeta(injected) {
-  if (!injected) return { key: "unknown", label: "Unknown", provider: injected };
-  if (injected.isRabby) return { key: "rabby", label: "Rabby", provider: injected };
-  if (injected.isMetaMask) return { key: "metamask", label: "MetaMask", provider: injected };
-  if (injected.isCoinbaseWallet) return { key: "coinbase", label: "Coinbase", provider: injected };
-  return { key: "injected", label: "Injected", provider: injected };
+function ensureEip6963Discovery() {
+  if (typeof window === "undefined") return;
+  if (!eip6963Listening) {
+    window.addEventListener("eip6963:announceProvider", (event) => {
+      const provider = event?.detail?.provider;
+      if (!provider) return;
+      const info = event?.detail?.info || {};
+      eip6963Providers.set(provider, { provider, info });
+    });
+    eip6963Listening = true;
+  }
+  if (!eip6963Requested) {
+    eip6963Requested = true;
+    try {
+      window.dispatchEvent(new Event("eip6963:requestProvider"));
+    } catch {
+      // ignore
+    }
+  }
+}
+
+function getWalletMeta(injected, info = null) {
+  const infoName = String(info?.name || "").trim();
+  const hint = `${String(info?.rdns || "")} ${infoName}`.toLowerCase();
+  if (!injected) return { key: "unknown", label: infoName || "Unknown", provider: injected };
+  if (injected.isRabby || hint.includes("rabby")) {
+    return { key: "rabby", label: infoName || "Rabby", provider: injected };
+  }
+  if (injected.isMetaMask || hint.includes("metamask")) {
+    return { key: "metamask", label: infoName || "MetaMask", provider: injected };
+  }
+  if (injected.isCoinbaseWallet || hint.includes("coinbase")) {
+    return { key: "coinbase", label: infoName || "Coinbase", provider: injected };
+  }
+  return { key: "injected", label: infoName || "Injected", provider: injected };
 }
 
 export function discoverWallets() {
-  const root = window.ethereum;
-  if (!root) return [];
+  ensureEip6963Discovery();
 
-  const providers = Array.isArray(root.providers) && root.providers.length ? root.providers : [root];
+  const providers = [];
+  for (const row of eip6963Providers.values()) {
+    providers.push({ provider: row.provider, info: row.info || null });
+  }
+
+  const root = window.ethereum;
+  if (root) {
+    const injected = Array.isArray(root.providers) && root.providers.length ? root.providers : [root];
+    for (const provider of injected) {
+      providers.push({ provider, info: null });
+    }
+  }
+
+  if (!providers.length) {
+    state.wallets = [];
+    return [];
+  }
+
   const seen = new Set();
   const list = [];
 
-  for (const provider of providers) {
+  for (const entry of providers) {
+    const provider = entry?.provider;
     if (!provider || seen.has(provider)) continue;
     seen.add(provider);
-    list.push(getWalletMeta(provider));
+    list.push(getWalletMeta(provider, entry?.info || null));
   }
 
   state.wallets = list;

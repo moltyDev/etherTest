@@ -165,6 +165,7 @@ const state = {
   pairMeta: null
 };
 let walletHub = null;
+let walletControls = null;
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
 const GECKO_NETWORK_BY_CHAIN = {
@@ -664,7 +665,11 @@ function setupProfileMenu() {
   ui.menuLogoutBtn?.addEventListener("click", () => {
     const ws = walletState();
     if (!ws.signer || !ws.address) {
-      ui.connectBtn?.click();
+      if (walletControls?.connect) {
+        walletControls.connect();
+      } else {
+        ui.connectBtn?.click();
+      }
       setProfileMenuOpen(false);
       return;
     }
@@ -1844,7 +1849,7 @@ async function init() {
     onOpen: () => setProfileMenuOpen(false)
   });
 
-  initWalletControls({
+  walletControls = initWalletControls({
     selectEl: ui.walletSelect,
     connectBtn: ui.connectBtn,
     disconnectBtn: ui.disconnectBtn,
@@ -1887,6 +1892,10 @@ async function init() {
   });
 
   ui.signInBtn?.addEventListener("click", () => {
+    if (walletControls?.connect) {
+      walletControls.connect();
+      return;
+    }
     ui.connectBtn?.click();
   });
 

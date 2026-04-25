@@ -82,6 +82,7 @@ const state = {
 };
 
 let walletHub = null;
+let walletControls = null;
 
 function loadWatchlist() {
   try {
@@ -452,6 +453,10 @@ function setupProfileMenu() {
       walletHub?.refresh();
       return;
     }
+    if (walletControls?.connect) {
+      walletControls.connect();
+      return;
+    }
     ui.connectBtn?.click();
   });
 
@@ -616,7 +621,7 @@ async function init() {
     onOpen: () => setProfileMenuOpen(false)
   });
 
-  initWalletControls({
+  walletControls = initWalletControls({
     selectEl: ui.walletSelect,
     connectBtn: ui.connectBtn,
     disconnectBtn: ui.disconnectBtn,
@@ -650,6 +655,10 @@ async function init() {
   });
 
   ui.signInBtn?.addEventListener("click", () => {
+    if (walletControls?.connect) {
+      walletControls.connect();
+      return;
+    }
     ui.connectBtn?.click();
   });
 

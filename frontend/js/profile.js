@@ -96,6 +96,7 @@ const state = {
   socialLoading: false
 };
 let walletHub = null;
+let walletControls = null;
 
 const COPY_PILL_ICON = `
   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -857,7 +858,11 @@ function setupProfileMenu() {
   ui.menuLogoutBtn?.addEventListener("click", () => {
     const ws = walletState();
     if (!ws.signer || !ws.address) {
-      ui.connectBtn?.click();
+      if (walletControls?.connect) {
+        walletControls.connect();
+      } else {
+        ui.connectBtn?.click();
+      }
       setProfileMenuOpen(false);
       return;
     }
@@ -922,7 +927,7 @@ async function init() {
     onOpen: () => setProfileMenuOpen(false)
   });
 
-  initWalletControls({
+  walletControls = initWalletControls({
     selectEl: ui.walletSelect,
     connectBtn: ui.connectBtn,
     disconnectBtn: ui.disconnectBtn,
@@ -958,6 +963,10 @@ async function init() {
   });
 
   ui.signInBtn?.addEventListener("click", () => {
+    if (walletControls?.connect) {
+      walletControls.connect();
+      return;
+    }
     ui.connectBtn?.click();
   });
 

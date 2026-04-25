@@ -473,10 +473,12 @@ export function initWalletControls({ selectEl, connectBtn, disconnectBtn, labelE
     }
   })();
 
-  connectBtn?.addEventListener("click", async () => {
+  const doConnect = async () => {
     try {
       const wallets = discoverWallets();
-      if (!wallets.length) throw new Error("No wallet extension detected");
+      if (!wallets.length) {
+        throw new Error("No wallet extension detected. Install MetaMask/Rabby and refresh.");
+      }
       const choice = await showWalletPickerModal(wallets);
       await connectWallet(choice);
       setWalletLabel(labelEl);
@@ -489,13 +491,22 @@ export function initWalletControls({ selectEl, connectBtn, disconnectBtn, labelE
         return;
       }
       setAlert(alertEl, message, true);
+      showCopyToast(message);
     }
-  });
+  };
 
-  disconnectBtn?.addEventListener("click", () => {
+  const doDisconnect = () => {
     disconnectWallet();
     setWalletLabel(labelEl);
     notifyDisconnected();
     setAlert(alertEl, "Wallet disconnected");
-  });
+  };
+
+  connectBtn?.addEventListener("click", doConnect);
+  disconnectBtn?.addEventListener("click", doDisconnect);
+
+  return {
+    connect: doConnect,
+    disconnect: doDisconnect
+  };
 }

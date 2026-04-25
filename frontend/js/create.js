@@ -101,6 +101,7 @@ const state = {
 
 let pendingProfileImageUri = "";
 let walletHub = null;
+let walletControls = null;
 
 function setAvatarNode(node, text, imageUri = "") {
   if (!node) return;
@@ -217,7 +218,11 @@ function setupProfileMenu() {
   ui.menuLogoutBtn?.addEventListener("click", () => {
     const ws = walletState();
     if (!ws.signer || !ws.address) {
-      ui.connectBtn?.click();
+      if (walletControls?.connect) {
+        walletControls.connect();
+      } else {
+        ui.connectBtn?.click();
+      }
       setProfileMenuOpen(false);
       return;
     }
@@ -612,7 +617,7 @@ async function init() {
     onOpen: () => setProfileMenuOpen(false)
   });
 
-  initWalletControls({
+  walletControls = initWalletControls({
     selectEl: ui.walletSelect,
     connectBtn: ui.connectBtn,
     disconnectBtn: ui.disconnectBtn,
@@ -646,6 +651,10 @@ async function init() {
   });
 
   ui.signInBtn?.addEventListener("click", () => {
+    if (walletControls?.connect) {
+      walletControls.connect();
+      return;
+    }
     ui.connectBtn?.click();
   });
 

@@ -8,55 +8,15 @@
         "includeFiles": [
           "artifacts/**",
           "cache/**",
-          "frontend/deployment.json"
+          "frontend/**"
         ]
       }
     }
   ],
   "routes": [
     {
-      "src": "/assets/(.*)",
-      "dest": "/frontend/assets/$1"
-    },
-    {
-      "src": "/js/(.*)",
-      "dest": "/frontend/js/$1"
-    },
-    {
-      "src": "/uploads/(.*)",
-      "dest": "/frontend/uploads/$1"
-    },
-    {
-      "src": "/(favicon\\.ico|robots\\.txt)",
-      "dest": "/frontend/$1"
-    },
-    {
-      "src": "/$",
-      "dest": "/frontend/index.html"
-    },
-    {
-      "src": "/home$",
-      "dest": "/frontend/index.html"
-    },
-    {
-      "src": "/create$",
-      "dest": "/frontend/create.html"
-    },
-    {
-      "src": "/token$",
-      "dest": "/frontend/token.html"
-    },
-    {
-      "src": "/profile$",
-      "dest": "/frontend/profile.html"
-    },
-    {
-      "src": "/api/(.*)",
-      "dest": "backend/server.js"
-    },
-    {
       "src": "/(.*)",
-      "dest": "/frontend/index.html"
+      "dest": "backend/server.js"
     }
   ]
 }

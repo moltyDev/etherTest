@@ -61,7 +61,7 @@ const ETH_USD_CACHE_KEY = "etherpump.ethusd.v1";
 const CHAIN_PREFERENCE_KEY = "etherpump.chain.preferred.v1";
 const ETH_USD_FALLBACK = 3000;
 const ETH_USD_CACHE_TTL_MS = 5 * 60 * 1000;
-const PROFILE_REMOTE_TTL_MS = 60 * 1000;
+const PROFILE_REMOTE_TTL_MS = 10 * 1000;
 const PROFILE_IMAGE_URI_MAX_LENGTH = 2 * 1024 * 1024;
 const profileInFlight = new Map();
 

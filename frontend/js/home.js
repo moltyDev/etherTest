@@ -602,7 +602,7 @@ function setupInteractions() {
 async function refreshLaunches() {
   const launchesRes = await api.launches(80, 0);
   state.launches = launchesRes.launches || [];
-  await hydrateUserProfiles(state.launches.map((launch) => launch.creator));
+  await hydrateUserProfiles(state.launches.map((launch) => launch.creator), { force: true });
   renderTrending();
   renderExplore();
 }

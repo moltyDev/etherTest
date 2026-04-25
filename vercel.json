@@ -1,14 +1,18 @@
 {
   "version": 2,
-  "functions": {
-    "backend/server.js": {
-      "includeFiles": [
-        "artifacts/**",
-        "cache/**",
-        "frontend/deployment.json"
-      ]
+  "builds": [
+    {
+      "src": "backend/server.js",
+      "use": "@vercel/node",
+      "config": {
+        "includeFiles": [
+          "artifacts/**",
+          "cache/**",
+          "frontend/deployment.json"
+        ]
+      }
     }
-  },
+  ],
   "routes": [
     {
       "src": "/assets/(.*)",

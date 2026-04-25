@@ -453,7 +453,16 @@ function resolveWallet(choice = "metamask") {
   const wallets = discoverWallets();
   if (!wallets.length) return null;
   if (!choice) return wallets[0];
-  return wallets.find((w) => w.id === choice) || wallets.find((w) => w.key === choice) || wallets[0];
+  const byId = wallets.find((w) => w.id === choice);
+  if (byId) return byId;
+  const byKey = wallets.find((w) => w.key === choice);
+  if (byKey) return byKey;
+  const keyFromComposite = String(choice).split(":")[0];
+  if (keyFromComposite) {
+    const byParsedKey = wallets.find((w) => w.key === keyFromComposite);
+    if (byParsedKey) return byParsedKey;
+  }
+  return wallets[0];
 }
 
 export async function connectWallet(choice = "", options = {}) {
@@ -509,7 +518,8 @@ export async function connectWallet(choice = "", options = {}) {
     walletListenersAttached.add(wallet.provider);
   }
 
-  saveWalletSession({ connected: true, choice: wallet.id || wallet.key });
+  // Persist stable wallet key across page reloads; provider IDs may vary by session.
+  saveWalletSession({ connected: true, choice: wallet.key });
 
   return { ...state };
 }

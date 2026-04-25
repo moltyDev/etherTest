@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/assets/site.css?v=20260425c" />
+    <link rel="stylesheet" href="/assets/site.css?v=20260425k" />
   </head>
   <body>
     <div class="app-shell">
@@ -370,9 +370,16 @@
         </div>
         <p>Update how you appear across Etherpump.fun.</p>
         <div class="edit-avatar-row">
-          <span id="editAvatarPreview" class="profile-avatar large edit-avatar-preview">EP</span>
+          <button id="editAvatarPickBtn" class="edit-avatar-trigger" type="button" aria-label="Choose profile image">
+            <span id="editAvatarPreview" class="profile-avatar large edit-avatar-preview">EP</span>
+            <span class="edit-avatar-camera" aria-hidden="true">
+              <svg viewBox="0 0 24 24">
+                <path d="M8 8.5l1.2-1.7a1.5 1.5 0 0 1 1.2-.6h3.2a1.5 1.5 0 0 1 1.2.6L16 8.5h1.5A2.5 2.5 0 0 1 20 11v5.5a2.5 2.5 0 0 1-2.5 2.5h-11A2.5 2.5 0 0 1 4 16.5V11a2.5 2.5 0 0 1 2.5-2.5H8z"></path>
+                <circle cx="12" cy="13.5" r="3.2"></circle>
+              </svg>
+            </span>
+          </button>
           <div class="edit-avatar-actions">
-            <button id="editAvatarPickBtn" class="btn-ghost" type="button">Choose image</button>
             <button id="editAvatarRemoveBtn" class="btn-ghost" type="button">Remove</button>
           </div>
         </div>

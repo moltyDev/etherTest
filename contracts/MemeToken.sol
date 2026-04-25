@@ -17,6 +17,7 @@ contract MemeToken {
     address public immutable creator;
     address public immutable platformFeeRecipient;
     address public dexPair;
+    bool public factoryControlRenounced;
 
     uint256 public creatorClaimable;
     uint256 public platformClaimable;
@@ -27,6 +28,7 @@ contract MemeToken {
     event Transfer(address indexed from, address indexed to, uint256 value);
     event Approval(address indexed owner, address indexed spender, uint256 value);
     event DexPairSet(address indexed pair);
+    event FactoryControlRenounced(address indexed byFactory);
     event TradeFeeAccrued(address indexed from, address indexed to, uint256 creatorFee, uint256 platformFee);
     event CreatorFeesClaimed(address indexed creator, uint256 amount);
     event PlatformFeesClaimed(address indexed recipient, uint256 amount);
@@ -89,8 +91,17 @@ contract MemeToken {
 
     function setDexPair(address pair) external onlyFactory {
         require(pair != address(0), "pair required");
+        require(!factoryControlRenounced, "factory control renounced");
+        require(dexPair == address(0), "pair already set");
         dexPair = pair;
         emit DexPairSet(pair);
+    }
+
+    /// @notice Irreversibly removes any factory-level control hooks.
+    function renounceFactoryControl() external onlyFactory {
+        require(!factoryControlRenounced, "already renounced");
+        factoryControlRenounced = true;
+        emit FactoryControlRenounced(msg.sender);
     }
 
     function claimCreatorFees() external returns (uint256 amount) {

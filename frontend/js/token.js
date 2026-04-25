@@ -1936,6 +1936,9 @@ async function init() {
   setupChartControls();
   setupInteractions();
   initCoinSearchOverlay({ triggerInputs: [ui.tokenSearchInput] });
+  if (ui.tradeFilterEnabled) {
+    ui.tradeFilterEnabled.checked = false;
+  }
   setTradeTab(true);
 
   ui.buyBtn?.addEventListener("click", onBuy);
@@ -1950,10 +1953,10 @@ async function init() {
   await loadTokenPage(false, false);
 
   setInterval(() => {
-    loadTokenPage(true, true).catch(() => {
+    loadTokenPage(false, true).catch(() => {
       // ignore transient poll failures
     });
-  }, 3_000);
+  }, 2_500);
 
   setInterval(() => {
     refreshEthUsd(true)

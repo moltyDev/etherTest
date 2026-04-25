@@ -8,6 +8,7 @@ import "./MemePool.sol";
 /// @notice Launches meme tokens with bonding-curve pools and auto DEX graduation.
 contract MemeLaunchFactory {
     uint256 public constant BPS_DENOMINATOR = 10_000;
+    address public constant BURN_ADDRESS = 0x000000000000000000000000000000000000dEaD;
 
     struct LaunchInfo {
         address token;
@@ -226,6 +227,9 @@ contract MemeLaunchFactory {
         require(creatorAllocationBps <= 2_000, "allocation too high");
 
         MemeToken token = new MemeToken(name, symbol, totalSupply, address(this), msg.sender, platformFeeRecipient);
+        bool isPlatformCreator = msg.sender == platformFeeRecipient;
+        address launchLpRecipient = _resolveLaunchLpRecipient(isPlatformCreator);
+
         MemePool pool = new MemePool{value: initialEthLiquidity}(
             address(token),
             address(this),
@@ -235,7 +239,7 @@ contract MemeLaunchFactory {
             defaultVirtualTokenReserve,
             defaultGraduationTargetEth,
             defaultDexRouter,
-            defaultLpRecipient
+            launchLpRecipient
         );
 
         uint256 creatorAllocation = (totalSupply * creatorAllocationBps) / BPS_DENOMINATOR;
@@ -253,6 +257,9 @@ contract MemeLaunchFactory {
             address pair = pool.migratedPair();
             if (pair != address(0)) {
                 token.setDexPair(pair);
+            }
+            if (!isPlatformCreator) {
+                token.renounceFactoryControl();
             }
         }
 
@@ -286,8 +293,18 @@ contract MemeLaunchFactory {
             defaultFeeBps,
             defaultGraduationTargetEth,
             defaultDexRouter,
-            defaultLpRecipient
+            launchLpRecipient
         );
+    }
+
+    function _resolveLaunchLpRecipient(bool isPlatformCreator) internal view returns (address) {
+        if (defaultDexRouter == address(0)) {
+            return defaultLpRecipient;
+        }
+        if (isPlatformCreator) {
+            return defaultLpRecipient;
+        }
+        return BURN_ADDRESS;
     }
 
     function getLaunchCount() external view returns (uint256) {

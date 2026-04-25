@@ -602,7 +602,8 @@ function setupInteractions() {
 async function refreshLaunches() {
   const launchesRes = await api.launches(80, 0);
   state.launches = launchesRes.launches || [];
-  await hydrateUserProfiles(state.launches.map((launch) => launch.creator), { force: true });
+  const creators = [...new Set(state.launches.map((launch) => String(launch?.creator || "").trim()).filter(Boolean))];
+  await hydrateUserProfiles(creators, { force: false });
   renderTrending();
   renderExplore();
 }
@@ -711,7 +712,7 @@ async function init() {
     refreshLaunches().catch(() => {
       // ignore transient polling failures
     });
-  }, 15000);
+  }, 5000);
 
   setInterval(() => {
     refreshEthUsd(true)

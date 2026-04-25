@@ -2,6 +2,8 @@ const { expect } = require("chai");
 const { ethers } = require("hardhat");
 
 describe("MemeLaunchFactory", function () {
+  const DEAD_ADDRESS = "0x000000000000000000000000000000000000dEaD";
+
   async function deployFixture({ withDex = false, targetEth = "20", launchFeeWei = 0n } = {}) {
     const [owner, creator, trader, feeRecipient, lpRecipient, platformRecipient] = await ethers.getSigners();
 
@@ -206,5 +208,39 @@ describe("MemeLaunchFactory", function () {
     expect(await token.balanceOf(token.target)).to.equal(0n);
     expect(pairAfter - pairBefore).to.equal((transferAmount * 9950n) / 10_000n);
     expect(await token.balanceOf(trader.address)).to.equal(0n);
+  });
+
+  it("burns LP and renounces factory control for non-platform instant launches", async function () {
+    const { creator, factory } = await deployFixture({ withDex: true, targetEth: "1" });
+
+    await factory
+      .connect(creator)
+      .createLaunchInstant("Safe Token", "SAFE", "", "locked", ethers.parseUnits("1000000", 18), 1000, {
+        value: ethers.parseEther("0.1")
+      });
+
+    const launch = await factory.getLaunch(0);
+    const token = await ethers.getContractAt("MemeToken", launch.token);
+    const pool = await ethers.getContractAt("MemePool", launch.pool);
+
+    expect(await pool.lpRecipient()).to.equal(DEAD_ADDRESS);
+    expect(await token.factoryControlRenounced()).to.equal(true);
+  });
+
+  it("keeps configured LP recipient for platform wallet launches", async function () {
+    const { lpRecipient, platformRecipient, factory } = await deployFixture({ withDex: true, targetEth: "1" });
+
+    await factory
+      .connect(platformRecipient)
+      .createLaunchInstant("Platform Token", "PLAT", "", "platform", ethers.parseUnits("1000000", 18), 0, {
+        value: ethers.parseEther("0.1")
+      });
+
+    const launch = await factory.getLaunch(0);
+    const token = await ethers.getContractAt("MemeToken", launch.token);
+    const pool = await ethers.getContractAt("MemePool", launch.pool);
+
+    expect(await pool.lpRecipient()).to.equal(lpRecipient.address);
+    expect(await token.factoryControlRenounced()).to.equal(false);
   });
 });

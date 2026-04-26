@@ -117,6 +117,15 @@ function creatorHandle(address) {
   return profile.username || defaultUsername(address);
 }
 
+function escapeHtml(value = "") {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function humanAgo(timestampSec) {
   const ts = Number(timestampSec || 0) * 1000;
   if (!ts) return "-";
@@ -378,7 +387,7 @@ function syncFollowButton() {
   ui.profileFollowBtn.textContent = state.followBusy
     ? "Saving..."
     : state.isFollowingProfile
-      ? "Following"
+      ? "Unfollow"
       : "Follow";
 }
 
@@ -535,45 +544,47 @@ function renderFollowersTab(payload) {
   const followers = payload?.followers || [];
   const following = payload?.following || [];
 
+  const renderFollowRow = (row, fallbackDetail) => {
+    const detail = Array.isArray(row.details) && row.details.length ? row.details[0] : fallbackDetail;
+    const interactions = Math.max(1, Number(row.interactions || 1));
+    const address = normalizeAddress(row.address || "");
+    const displayName = displayNameForAddress(address);
+    const profile = loadUserProfile(address);
+    const imageUri = String(profile.imageUri || "");
+    const initials = String(displayName || "EP")
+      .replace(/\s+/g, "")
+      .slice(0, 2)
+      .toUpperCase() || "EP";
+    const avatarMarkup = imageUri
+      ? `<span class="profile-follow-avatar with-image"><img src="${escapeHtml(imageUri)}" alt="${escapeHtml(displayName)}" loading="lazy" /></span>`
+      : `<span class="profile-follow-avatar">${escapeHtml(initials)}</span>`;
+
+    return `
+      <a class="profile-follow-row" href="/profile?address=${address}">
+        <div class="profile-follow-left">
+          ${avatarMarkup}
+          <div>
+            <strong>${escapeHtml(displayName)}</strong>
+            <span>${escapeHtml(shortAddress(address))}</span>
+          </div>
+        </div>
+        <div class="profile-follow-meta">
+          <b>${interactions}x</b>
+          <span>${escapeHtml(detail)}</span>
+        </div>
+      </a>
+    `;
+  };
+
   const followerHtml = followers.length
     ? followers
-        .map((row) => {
-          const detail = Array.isArray(row.details) && row.details.length ? row.details[0] : "Follower";
-          const interactions = Math.max(1, Number(row.interactions || 1));
-          return `
-            <a class="profile-follow-row" href="/profile?address=${row.address}">
-              <div>
-                <strong>${displayNameForAddress(row.address)}</strong>
-                <span>${shortAddress(row.address)}</span>
-              </div>
-              <div class="profile-follow-meta">
-                <b>${interactions}x</b>
-                <span>${detail}</span>
-              </div>
-            </a>
-          `;
-        })
+        .map((row) => renderFollowRow(row, "Follower"))
         .join("")
     : `<p class="muted">No followers detected yet.</p>`;
 
   const followingHtml = following.length
     ? following
-        .map((row) => {
-          const detail = Array.isArray(row.details) && row.details.length ? row.details[0] : "Following";
-          const interactions = Math.max(1, Number(row.interactions || 1));
-          return `
-            <a class="profile-follow-row" href="/profile?address=${row.address}">
-              <div>
-                <strong>${displayNameForAddress(row.address)}</strong>
-                <span>${shortAddress(row.address)}</span>
-              </div>
-              <div class="profile-follow-meta">
-                <b>${interactions}x</b>
-                <span>${detail}</span>
-              </div>
-            </a>
-          `;
-        })
+        .map((row) => renderFollowRow(row, "Following"))
         .join("")
     : `<p class="muted">Not following anyone yet.</p>`;
 

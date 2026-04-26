@@ -130,6 +130,15 @@ function trimText(value = "", max = 60) {
   return `${text.slice(0, max - 3)}...`;
 }
 
+function escapeHtml(value = "") {
+  return String(value ?? "")
+    .replaceAll("&", "&amp;")
+    .replaceAll("<", "&lt;")
+    .replaceAll(">", "&gt;")
+    .replaceAll('"', "&quot;")
+    .replaceAll("'", "&#39;");
+}
+
 function absoluteDate(tsSec) {
   const n = Number(tsSec || 0);
   if (!Number.isFinite(n) || n <= 0) return "-";
@@ -153,6 +162,42 @@ function creatorHandle(address) {
   if (!address) return "anon";
   const profile = loadUserProfile(address);
   return profile.username || defaultUsername(address);
+}
+
+function creatorMeta(address) {
+  const profile = loadUserProfile(address);
+  const name = profile.username || defaultUsername(address);
+  const imageUri = String(profile.imageUri || "");
+  const initials = String(name || "EP")
+    .replace(/\s+/g, "")
+    .slice(0, 2)
+    .toUpperCase() || "EP";
+  return { name, imageUri, initials };
+}
+
+function renderCreatorPill(address, maxNameLen = 20) {
+  const { name, imageUri, initials } = creatorMeta(address);
+  const shortName = trimText(name, maxNameLen);
+  const safeName = escapeHtml(name);
+  const safeShortName = escapeHtml(shortName);
+
+  if (imageUri) {
+    return `
+      <a href="/profile?address=${address}" class="creator-pill">
+        <span class="creator-pill-avatar with-image">
+          <img src="${escapeHtml(imageUri)}" alt="${safeName}" loading="lazy" />
+        </span>
+        <span class="creator-pill-name">${safeShortName}</span>
+      </a>
+    `;
+  }
+
+  return `
+    <a href="/profile?address=${address}" class="creator-pill">
+      <span class="creator-pill-avatar">${escapeHtml(initials)}</span>
+      <span class="creator-pill-name">${safeShortName}</span>
+    </a>
+  `;
 }
 
 function setAvatar(node, text, imageUri = "") {
@@ -218,8 +263,21 @@ function filteredLaunches() {
   if (state.filter === "new") {
     return items.sort((a, b) => b.metrics.createdSec - a.metrics.createdSec);
   }
+  if (state.filter === "marketcap") {
+    return items.sort((a, b) => b.metrics.marketCapEth - a.metrics.marketCapEth);
+  }
+  if (state.filter === "lasttrade") {
+    return items.sort((a, b) => {
+      const aTs = Number(a?.pool?.lastTradeAt || a.metrics.createdSec || 0);
+      const bTs = Number(b?.pool?.lastTradeAt || b.metrics.createdSec || 0);
+      return bTs - aTs;
+    });
+  }
   if (state.filter === "oldest") {
     return items.sort((a, b) => a.metrics.createdSec - b.metrics.createdSec);
+  }
+  if (state.filter === "mayhem" || state.filter === "agents") {
+    return items.sort((a, b) => b.metrics.moverScore - a.metrics.moverScore);
   }
   return items.sort((a, b) => b.metrics.moverScore - a.metrics.moverScore);
 }
@@ -288,7 +346,7 @@ function buildExploreCard(launch) {
         </div>
         <strong class="coin-metric">${formatLaunchMarketCap(launch)}</strong>
         <div class="coin-meta">
-          <a href="/profile?address=${launch.creator}" class="creator-pill">${trimText(creatorHandle(launch.creator), 20)}</a>
+          ${renderCreatorPill(launch.creator, 20)}
           <span title="${absoluteDate(launch.createdAt)}">${humanAgo(launch.createdAt)}</span>
         </div>
         <p>${trimText(launch.description, 92)}</p>

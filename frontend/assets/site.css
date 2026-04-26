@@ -1597,6 +1597,40 @@ button:disabled {
   align-items: center;
 }
 
+.profile-follow-left {
+  min-width: 0;
+  display: inline-flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.profile-follow-avatar {
+  width: 34px;
+  height: 34px;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #8a92b2, #62688f);
+  color: #101527;
+  font-size: 0.72rem;
+  font-weight: 800;
+  border: 1px solid rgba(220, 229, 255, 0.22);
+  overflow: hidden;
+}
+
+.profile-follow-avatar.with-image {
+  color: transparent;
+}
+
+.profile-follow-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
 .profile-follow-row strong {
   display: block;
   font-size: 0.84rem;
@@ -1822,6 +1856,9 @@ button:disabled {
 }
 
 .tag {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.34rem;
   background: #101527;
   border: 1px solid var(--line);
   color: #c9d2ef;
@@ -1830,9 +1867,24 @@ button:disabled {
   padding: 0.38rem 0.76rem;
 }
 
+.filter-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  min-width: 0.86rem;
+  font-size: 0.76rem;
+  line-height: 1;
+}
+
+.filter-icon-live {
+  color: #ff617f;
+  font-size: 0.74rem;
+  transform: translateY(-0.5px);
+}
+
 .filter-star {
   color: #ffcf57;
-  margin-right: 0.2rem;
+  margin-right: 0;
 }
 
 .tag.active {
@@ -2019,12 +2071,44 @@ button:disabled {
 .creator-pill {
   display: inline-flex;
   align-items: center;
+  gap: 0.32rem;
   border: 1px solid var(--line);
   border-radius: 999px;
   background: #101527;
   color: #d6def9;
-  padding: 0.18rem 0.52rem;
+  padding: 0.16rem 0.44rem 0.16rem 0.2rem;
   font-size: 0.68rem;
+}
+
+.creator-pill-avatar {
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: linear-gradient(145deg, #8a92b2, #62688f);
+  color: #0f1424;
+  font-size: 0.55rem;
+  font-weight: 800;
+  border: 1px solid rgba(220, 229, 255, 0.22);
+  overflow: hidden;
+  flex: 0 0 auto;
+}
+
+.creator-pill-avatar.with-image {
+  color: transparent;
+}
+
+.creator-pill-avatar img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+.creator-pill-name {
+  min-width: 0;
 }
 
 .trade-inline {

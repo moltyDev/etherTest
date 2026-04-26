@@ -2290,6 +2290,39 @@ button:disabled {
   font-size: 0.74rem;
 }
 
+.create-creator-summary {
+  border: 1px solid rgba(138, 146, 178, 0.38);
+  border-radius: 12px;
+  background: rgba(20, 26, 43, 0.72);
+  padding: 0.6rem 0.78rem;
+  display: grid;
+  gap: 0.18rem;
+}
+
+.create-creator-summary.invalid {
+  border-color: rgba(255, 126, 148, 0.58);
+  background: rgba(59, 20, 34, 0.32);
+}
+
+.create-creator-title {
+  margin: 0;
+  font-size: 0.74rem;
+  color: #aeb7d6;
+}
+
+.create-creator-main {
+  margin: 0;
+  font-size: 1rem;
+  font-weight: 800;
+  color: #f2f6ff;
+}
+
+.create-creator-sub {
+  margin: 0;
+  font-size: 0.76rem;
+  color: #cfd8f6;
+}
+
 .create-socials summary {
   list-style: none;
   cursor: pointer;

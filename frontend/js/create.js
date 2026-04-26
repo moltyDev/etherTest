@@ -71,7 +71,10 @@ const ui = {
   uploadCopy: document.getElementById("uploadCopy"),
   supply: document.getElementById("supply"),
   creatorBuyEth: document.getElementById("creatorBuyEth"),
+  creatorAllocationPreviewWrap: document.getElementById("creatorAllocationPreviewWrap"),
   creatorAllocationPreview: document.getElementById("creatorAllocationPreview"),
+  creatorAllocationTokens: document.getElementById("creatorAllocationTokens"),
+  creatorAllocationHint: document.getElementById("creatorAllocationHint"),
   website: document.getElementById("website"),
   twitter: document.getElementById("twitter"),
   telegram: document.getElementById("telegram"),
@@ -455,8 +458,19 @@ function updateLaunchMath({ source = "liquidity" } = {}) {
     ui.launchMathQuaternary.textContent = `At your settings, 1 ETH liquidity ~ ${formatUsd(economics.oneEthMcapUsd)} market cap`;
   }
   if (ui.creatorAllocationPreview) {
-    const limitHint = creatorWithinCap ? "" : " (max 20% allowed)";
-    ui.creatorAllocationPreview.textContent = `Estimated creator allocation: ${economics.creatorPct.toFixed(2)}% of total supply${limitHint}`;
+    const symbol = String(ui.symbol?.value || "TOKEN").trim().toUpperCase() || "TOKEN";
+    const creatorTokens = economics.totalSupply * (economics.creatorPct / 100);
+    const maxCreatorBuyEth = economics.liquidityEth * 0.25;
+    ui.creatorAllocationPreview.textContent = `${economics.creatorPct.toFixed(2)}% of total supply`;
+    if (ui.creatorAllocationTokens) {
+      ui.creatorAllocationTokens.textContent = `${formatTokenAmount(creatorTokens)} ${symbol}`;
+    }
+    if (ui.creatorAllocationHint) {
+      ui.creatorAllocationHint.textContent = creatorWithinCap
+        ? `At current liquidity, up to ${maxCreatorBuyEth.toFixed(4)} ETH keeps creator at/below 20%.`
+        : `Too high: lower creator buy to ${maxCreatorBuyEth.toFixed(4)} ETH or less (20% max).`;
+    }
+    ui.creatorAllocationPreviewWrap?.classList.toggle("invalid", !creatorWithinCap);
   }
 }
 
@@ -476,6 +490,21 @@ function formatUsd(value) {
     style: "currency",
     currency: "USD",
     maximumFractionDigits: 0
+  }).format(n);
+}
+
+function formatTokenAmount(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  if (n >= 1000) {
+    return new Intl.NumberFormat("en-US", {
+      notation: "compact",
+      compactDisplay: "short",
+      maximumFractionDigits: 2
+    }).format(n);
+  }
+  return new Intl.NumberFormat("en-US", {
+    maximumFractionDigits: 4
   }).format(n);
 }
 
@@ -528,6 +557,7 @@ function setupFormEnhancements() {
 
   ui.name.addEventListener("input", onInput);
   ui.symbol.addEventListener("input", onInput);
+  ui.symbol.addEventListener("input", () => updateLaunchMath({ source: "liquidity" }));
   ui.description.addEventListener("input", onInput);
   ui.image.addEventListener("input", onInput);
   ui.supply?.addEventListener("input", () => updateLaunchMath({ source: "liquidity" }));

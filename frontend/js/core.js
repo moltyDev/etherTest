@@ -286,18 +286,19 @@ function stringToHue(input = "") {
 
 export function makeFallbackImage(name = "", symbol = "") {
   const label = sanitizeTokenSymbol(symbol || name);
-  const hue = stringToHue(`${name}:${symbol}`);
-  const hue2 = (hue + 70) % 360;
+  const seed = stringToHue(`${name}:${symbol}`);
+  const hue = 244 + (seed % 18);
+  const hue2 = 256 + (seed % 20);
   const svg = `<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 400 400'>
     <defs>
       <linearGradient id='g' x1='0' y1='0' x2='1' y2='1'>
-        <stop offset='0%' stop-color='hsl(${hue} 72% 55%)'/>
-        <stop offset='100%' stop-color='hsl(${hue2} 78% 38%)'/>
+        <stop offset='0%' stop-color='hsl(${hue} 86% 74%)'/>
+        <stop offset='100%' stop-color='hsl(${hue2} 64% 56%)'/>
       </linearGradient>
     </defs>
     <rect width='400' height='400' fill='#120b22'/>
-    <circle cx='320' cy='78' r='120' fill='url(#g)' opacity='0.8'/>
-    <circle cx='80' cy='340' r='145' fill='url(#g)' opacity='0.7'/>
+    <circle cx='320' cy='78' r='120' fill='url(#g)' opacity='0.84'/>
+    <circle cx='80' cy='340' r='145' fill='url(#g)' opacity='0.76'/>
     <rect x='24' y='24' width='352' height='352' rx='36' fill='none' stroke='rgba(255,255,255,.28)' stroke-width='2'/>
     <text x='200' y='222' text-anchor='middle' fill='white' font-family='Arial' font-size='66' font-weight='700'>${label}</text>
   </svg>`;

@@ -441,6 +441,20 @@ async function parseOptimisticTradeFromReceipt(receipt, fallbackSide = "buy") {
     ethOut = amount1Out;
     tokenIn = amount0In;
     tokenOut = amount0Out;
+  } else if (token0 === launchToken || token1 === launchToken) {
+    // Fallback: infer trade direction with launch-token leg even when WETH address
+    // wasn't available yet from pool metadata.
+    if (token0 === launchToken) {
+      tokenIn = amount0In;
+      tokenOut = amount0Out;
+      ethIn = amount1In;
+      ethOut = amount1Out;
+    } else {
+      tokenIn = amount1In;
+      tokenOut = amount1Out;
+      ethIn = amount0In;
+      ethOut = amount0Out;
+    }
   } else {
     return null;
   }
@@ -462,6 +476,32 @@ async function parseOptimisticTradeFromReceipt(receipt, fallbackSide = "buy") {
     timestamp,
     ethAmountWei: ethAmountWei.toString(),
     tokenAmountWei: tokenAmountWei.toString(),
+    priceWei: priceWei.toString(),
+    priceEth: Number(ethers.formatUnits(priceWei, 18)),
+    source: "local"
+  };
+}
+
+function buildSyntheticOptimisticTrade({
+  side = "buy",
+  account = "",
+  txHash = "",
+  ethAmountWei = 0n,
+  tokenAmountWei = 0n,
+  timestamp = Math.floor(Date.now() / 1000)
+}) {
+  const ethAmount = BigInt(ethAmountWei || 0n);
+  const tokenAmount = BigInt(tokenAmountWei || 0n);
+  const priceWei = tokenAmount > 0n ? (ethAmount * 10n ** 18n) / tokenAmount : 0n;
+
+  return {
+    side,
+    account: String(account || ""),
+    txHash: String(txHash || ""),
+    blockNumber: 0,
+    timestamp: Number(timestamp || Math.floor(Date.now() / 1000)),
+    ethAmountWei: ethAmount.toString(),
+    tokenAmountWei: tokenAmount.toString(),
     priceWei: priceWei.toString(),
     priceEth: Number(ethers.formatUnits(priceWei, 18)),
     source: "local"
@@ -1793,8 +1833,17 @@ async function onBuy() {
         })
     });
     const receipt = await tx.wait();
-    const optimistic = await parseOptimisticTradeFromReceipt(receipt, "buy");
-    if (optimistic) {
+    const optimistic =
+      (await parseOptimisticTradeFromReceipt(receipt, "buy")) ||
+      buildSyntheticOptimisticTrade({
+        side: "buy",
+        account: ws.address,
+        txHash: String(receipt?.hash || tx?.hash || ""),
+        ethAmountWei: ethIn,
+        tokenAmountWei: BigInt(quoted?.[1] || 0n),
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+    if (optimistic?.txHash) {
       pushOptimisticTrade(optimistic);
       state.trades = mergeTradesWithOptimistic(state.trades);
       renderTrades(state.trades);
@@ -1853,8 +1902,17 @@ async function onSell() {
         router.swapExactTokensForETHSupportingFeeOnTransferTokens(tokenIn, amountOutMin, path, ws.address, deadline)
     });
     const receipt = await tx.wait();
-    const optimistic = await parseOptimisticTradeFromReceipt(receipt, "sell");
-    if (optimistic) {
+    const optimistic =
+      (await parseOptimisticTradeFromReceipt(receipt, "sell")) ||
+      buildSyntheticOptimisticTrade({
+        side: "sell",
+        account: ws.address,
+        txHash: String(receipt?.hash || tx?.hash || ""),
+        ethAmountWei: BigInt(quoted?.[1] || 0n),
+        tokenAmountWei: tokenIn,
+        timestamp: Math.floor(Date.now() / 1000)
+      });
+    if (optimistic?.txHash) {
       pushOptimisticTrade(optimistic);
       state.trades = mergeTradesWithOptimistic(state.trades);
       renderTrades(state.trades);

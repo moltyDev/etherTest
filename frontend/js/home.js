@@ -80,7 +80,8 @@ const state = {
   ethUsd: 3000,
   chainId: 1,
   pendingProfileImageUri: "",
-  watchlist: loadWatchlist()
+  watchlist: loadWatchlist(),
+  moverSignals: new Map()
 };
 
 let walletHub = null;
@@ -236,8 +237,64 @@ function addLaunchMetrics(launch) {
   const recentBoost = Math.max(0, 48 - ageHours);
   const pair = String(launch?.pool?.migratedPair || "").toLowerCase();
   const isLive = Boolean(launch?.pool?.graduated) && pair && pair !== "0x0000000000000000000000000000000000000000";
-  const moverScore = marketCapEth * 1000 + recentBoost;
-  return { ...launch, metrics: { marketCapEth, createdSec, isLive, moverScore } };
+  const tokenKey = String(launch?.token || "").toLowerCase();
+  const signal = state.moverSignals.get(tokenKey) || null;
+  const momentumPct = Number(signal?.emaPct || 0);
+  const velocityEthPerSec = Number(signal?.emaVel || 0);
+  // Movers should primarily represent current movement, with a small baseline for stable ordering.
+  const movementScore = momentumPct * 2200 + velocityEthPerSec * 180 + recentBoost;
+  const baseScore = marketCapEth * 90;
+  const moverScore = movementScore + baseScore;
+  return {
+    ...launch,
+    metrics: { marketCapEth, createdSec, isLive, moverScore, momentumPct, velocityEthPerSec }
+  };
+}
+
+function updateMoverSignals(launches = []) {
+  const now = Date.now();
+  const active = new Set();
+  for (const launch of launches) {
+    const tokenKey = String(launch?.token || "").toLowerCase();
+    if (!tokenKey) continue;
+    active.add(tokenKey);
+
+    const currentCapEth = Number(launch?.pool?.marketCapEth || 0);
+    if (!Number.isFinite(currentCapEth) || currentCapEth < 0) continue;
+
+    const prev = state.moverSignals.get(tokenKey);
+    if (!prev) {
+      state.moverSignals.set(tokenKey, {
+        capEth: currentCapEth,
+        tsMs: now,
+        emaPct: 0,
+        emaVel: 0
+      });
+      continue;
+    }
+
+    const dtMs = Math.max(1, now - Number(prev.tsMs || now));
+    const dtSec = dtMs / 1000;
+    const baseCap = Math.max(0.000001, Number(prev.capEth || 0));
+    const rawPct = ((currentCapEth - baseCap) / baseCap) * 100;
+    const rawVel = (currentCapEth - Number(prev.capEth || 0)) / dtSec;
+
+    // Exponential smoothing to reduce jitter while staying responsive.
+    const emaPct = Number(prev.emaPct || 0) * 0.55 + rawPct * 0.45;
+    const emaVel = Number(prev.emaVel || 0) * 0.55 + rawVel * 0.45;
+
+    state.moverSignals.set(tokenKey, {
+      capEth: currentCapEth,
+      tsMs: now,
+      emaPct,
+      emaVel
+    });
+  }
+
+  // Prune old tokens not in current feed so memory stays bounded.
+  for (const key of state.moverSignals.keys()) {
+    if (!active.has(key)) state.moverSignals.delete(key);
+  }
 }
 
 function launchMatchesQuery(launch, query) {
@@ -660,6 +717,7 @@ function setupInteractions() {
 async function refreshLaunches() {
   const launchesRes = await api.launches(80, 0);
   state.launches = launchesRes.launches || [];
+  updateMoverSignals(state.launches);
   const creators = [...new Set(state.launches.map((launch) => String(launch?.creator || "").trim()).filter(Boolean))];
   await hydrateUserProfiles(creators, { force: false });
   renderTrending();

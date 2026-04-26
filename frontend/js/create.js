@@ -70,7 +70,8 @@ const ui = {
   uploadMediaWrap: document.getElementById("uploadMediaWrap"),
   uploadCopy: document.getElementById("uploadCopy"),
   supply: document.getElementById("supply"),
-  creatorAllocation: document.getElementById("creatorAllocation"),
+  creatorBuyEth: document.getElementById("creatorBuyEth"),
+  creatorAllocationPreview: document.getElementById("creatorAllocationPreview"),
   website: document.getElementById("website"),
   twitter: document.getElementById("twitter"),
   telegram: document.getElementById("telegram"),
@@ -374,13 +375,25 @@ function parseNumberInput(value, fallback = 0) {
   return Number.isFinite(n) ? n : fallback;
 }
 
-function getLaunchEconomics(liquidityEthInput = parseNumberInput(ui.devBuyEth?.value, 0)) {
+function deriveCreatorAllocationPct(liquidityEth, creatorBuyEth) {
+  const safeLiquidityEth = Math.max(0, liquidityEth);
+  const safeCreatorBuyEth = Math.max(0, creatorBuyEth);
+  const totalEth = safeLiquidityEth + safeCreatorBuyEth;
+  if (totalEth <= 0) return 0;
+  return (safeCreatorBuyEth / totalEth) * 100;
+}
+
+function getLaunchEconomics(
+  liquidityEthInput = parseNumberInput(ui.devBuyEth?.value, 0),
+  creatorBuyEthInput = parseNumberInput(ui.creatorBuyEth?.value, 0)
+) {
   const totalSupply = parseNumberInput(ui.supply?.value, 0);
-  const creatorPct = parseNumberInput(ui.creatorAllocation?.value, 0);
   const liquidityEth = Math.max(0, liquidityEthInput);
+  const creatorBuyEth = Math.max(0, creatorBuyEthInput);
+  const creatorPct = deriveCreatorAllocationPct(liquidityEth, creatorBuyEth);
   const ethUsd = Number.isFinite(state.ethUsd) && state.ethUsd > 0 ? state.ethUsd : 3000;
 
-  const creatorFraction = Math.min(Math.max(creatorPct / 100, 0), 0.2);
+  const creatorFraction = Math.min(Math.max(creatorPct / 100, 0), 0.9999);
   const poolFraction = Math.max(0.0001, 1 - creatorFraction);
   const poolTokens = totalSupply * poolFraction;
   const mcapMultiplier = poolTokens > 0 ? totalSupply / poolTokens : 0;
@@ -393,6 +406,7 @@ function getLaunchEconomics(liquidityEthInput = parseNumberInput(ui.devBuyEth?.v
   return {
     totalSupply,
     creatorPct,
+    creatorBuyEth,
     poolFraction,
     poolTokens,
     mcapMultiplier,
@@ -424,8 +438,9 @@ function updateLaunchMath({ source = "liquidity" } = {}) {
     ui.launchMcapUsd.value = nextTarget.toFixed(2);
   }
 
+  const creatorWithinCap = economics.creatorPct <= 20;
   const meetsMin = economics.marketCapUsd >= economics.minTargetMcapUsd;
-  ui.launchMathCard.classList.toggle("invalid", !meetsMin);
+  ui.launchMathCard.classList.toggle("invalid", !meetsMin || !creatorWithinCap);
 
   if (ui.launchMathPrimary) {
     ui.launchMathPrimary.textContent = `Estimated launch market cap: ${formatUsd(economics.marketCapUsd)} (~${economics.marketCapEth.toFixed(4)} ETH)`;
@@ -437,7 +452,11 @@ function updateLaunchMath({ source = "liquidity" } = {}) {
     ui.launchMathTertiary.textContent = `Minimum launch market cap at 0.5 ETH: ${formatUsd(economics.minTargetMcapUsd)}`;
   }
   if (ui.launchMathQuaternary) {
-    ui.launchMathQuaternary.textContent = `At your settings, 1 ETH liquidity ≈ ${formatUsd(economics.oneEthMcapUsd)} market cap`;
+    ui.launchMathQuaternary.textContent = `At your settings, 1 ETH liquidity ~ ${formatUsd(economics.oneEthMcapUsd)} market cap`;
+  }
+  if (ui.creatorAllocationPreview) {
+    const limitHint = creatorWithinCap ? "" : " (max 20% allowed)";
+    ui.creatorAllocationPreview.textContent = `Estimated creator allocation: ${economics.creatorPct.toFixed(2)}% of total supply${limitHint}`;
   }
 }
 
@@ -512,7 +531,7 @@ function setupFormEnhancements() {
   ui.description.addEventListener("input", onInput);
   ui.image.addEventListener("input", onInput);
   ui.supply?.addEventListener("input", () => updateLaunchMath({ source: "liquidity" }));
-  ui.creatorAllocation?.addEventListener("input", () => updateLaunchMath({ source: "liquidity" }));
+  ui.creatorBuyEth?.addEventListener("input", () => updateLaunchMath({ source: "liquidity" }));
   ui.devBuyEth?.addEventListener("input", () => updateLaunchMath({ source: "liquidity" }));
   ui.launchMcapUsd?.addEventListener("input", () => updateLaunchMath({ source: "target" }));
   ui.pickFileBtn?.addEventListener("click", () => {
@@ -623,14 +642,14 @@ async function onCreate(event) {
     const name = ui.name.value.trim();
     const symbol = ui.symbol.value.trim().toUpperCase();
     const totalSupplyInput = ui.supply.value.trim();
-    const creatorPct = Number(ui.creatorAllocation.value || "0");
+    const creatorBuyEth = parseNumberInput(ui.creatorBuyEth?.value, 0);
     let imageUri = ui.image.value.trim();
     const description = composeDescription();
     const initialLiquidityEthInput = ui.devBuyEth.value.trim();
 
     if (!name || !symbol) throw new Error("Coin name and ticker are required");
-    if (!Number.isFinite(creatorPct) || creatorPct < 0 || creatorPct > 20) {
-      throw new Error("Creator allocation must be between 0 and 20%");
+    if (!Number.isFinite(creatorBuyEth) || creatorBuyEth < 0) {
+      throw new Error("Creator buy amount must be 0 or higher");
     }
 
     if (!imageUri) {
@@ -651,7 +670,6 @@ async function onCreate(event) {
     }
 
     const totalSupply = ethers.parseUnits(totalSupplyInput, 18);
-    const creatorBps = BigInt(Math.round(creatorPct * 100));
     const factory = makeFactoryContract(state.config.factoryAddress);
 
     const initialLiquidityEth = ethers.parseEther(initialLiquidityEthInput || "0");
@@ -662,6 +680,14 @@ async function onCreate(event) {
     if (initialLiquidityEth < minLiquidityWei) {
       throw new Error(`Minimum launch liquidity is ${MIN_INITIAL_LIQUIDITY_ETH} ETH`);
     }
+    const creatorPct = deriveCreatorAllocationPct(parseNumberInput(initialLiquidityEthInput, 0), creatorBuyEth);
+    if (creatorPct > 20) {
+      const maxCreatorBuyEth = parseNumberInput(initialLiquidityEthInput, 0) * 0.25;
+      throw new Error(
+        `Creator buy amount is too high for launch liquidity. Max ${maxCreatorBuyEth.toFixed(4)} ETH keeps allocation at or below 20%.`
+      );
+    }
+    const creatorBps = BigInt(Math.round(creatorPct * 100));
     const launchFeeWei = BigInt(state.config?.deployment?.launchFeeWei || "0");
     const totalValue = initialLiquidityEth + launchFeeWei;
 

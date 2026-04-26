@@ -154,9 +154,18 @@ function connectedAddress() {
 
 function viewingOwnProfile() {
   const viewer = connectedAddress();
-  const target = normalizeAddress(state.address || "");
-  if (!viewer || !target) return false;
-  return viewer.toLowerCase() === target.toLowerCase();
+  if (!viewer) return false;
+  const candidates = [
+    state.address,
+    state.payload?.address,
+    state.payload?.profile?.address,
+    getAddressFromUrl()
+  ]
+    .map((value) => normalizeAddress(value || ""))
+    .filter(Boolean);
+
+  if (!candidates.length) return false;
+  return candidates.some((address) => address.toLowerCase() === viewer.toLowerCase());
 }
 
 async function copyText(value) {

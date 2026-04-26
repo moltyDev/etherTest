@@ -261,8 +261,15 @@ export function parseUiError(err) {
     "Unknown error";
 
   const clean = msg.replace("execution reverted: ", "");
+  const low = clean.toLowerCase();
 
-  if (clean.toLowerCase().includes("missing revert data")) {
+  if (low.includes("insufficient funds")) {
+    return "Insufficient ETH for launch fee + liquidity + gas.";
+  }
+  if (low.includes("insufficient eth for fee+liquidity")) {
+    return "Not enough ETH for launch fee plus initial liquidity.";
+  }
+  if (low.includes("missing revert data")) {
     return "Wallet could not estimate this transaction. Try a smaller trade or retry.";
   }
 

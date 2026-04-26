@@ -15,11 +15,12 @@ import {
   setPreferredChainId,
   shortAddress,
   walletState
-} from "./core.js";
+} from "./core.js?v=20260426c";
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
 import { initCoinSearchOverlay } from "./searchModal.js?v=20260424d";
 
 const MIN_INITIAL_LIQUIDITY_ETH = 0.5;
+const PLATFORM_TEST_MIN_LIQUIDITY_ETH = 0.0001;
 
 const ui = {
   walletSelect: document.getElementById("walletChoice"),
@@ -117,6 +118,27 @@ const state = {
 let pendingProfileImageUri = "";
 let walletHub = null;
 let walletControls = null;
+
+function isPlatformCreatorAddress(address = "") {
+  const connected = String(address || "").trim().toLowerCase();
+  if (!connected) return false;
+  const platformFromConfig = String(state.config?.deployment?.platformFeeRecipient || "").trim().toLowerCase();
+  return Boolean(platformFromConfig) && connected === platformFromConfig;
+}
+
+function requiredMinLiquidityEth(address = walletState().address) {
+  return isPlatformCreatorAddress(address) ? PLATFORM_TEST_MIN_LIQUIDITY_ETH : MIN_INITIAL_LIQUIDITY_ETH;
+}
+
+function syncLiquidityInputMin() {
+  if (!ui.devBuyEth) return;
+  const minLiquidity = requiredMinLiquidityEth(walletState().address);
+  ui.devBuyEth.min = String(minLiquidity);
+  const current = parseNumberInput(ui.devBuyEth.value, minLiquidity);
+  if (!Number.isFinite(current) || current < minLiquidity) {
+    ui.devBuyEth.value = minLiquidity.toFixed(minLiquidity < 0.01 ? 4 : 1);
+  }
+}
 
 function setAvatarNode(node, text, imageUri = "") {
   if (!node) return;
@@ -404,7 +426,7 @@ function getLaunchEconomics(
   const marketCapEth = liquidityEth * mcapMultiplier;
   const marketCapUsd = marketCapEth * ethUsd;
   const oneEthMcapUsd = mcapMultiplier * ethUsd;
-  const minLiquidityEth = MIN_INITIAL_LIQUIDITY_ETH;
+  const minLiquidityEth = requiredMinLiquidityEth(walletState().address);
   const minTargetMcapUsd = minLiquidityEth * mcapMultiplier * ethUsd;
   return {
     totalSupply,
@@ -429,7 +451,7 @@ function updateLaunchMath({ source = "liquidity" } = {}) {
 
   if (source === "target" && targetMcapUsdInput > 0 && economicsFromLiquidity.mcapMultiplier > 0) {
     const requiredLiquidityEthRaw = (targetMcapUsdInput / Math.max(state.ethUsd, 1)) / economicsFromLiquidity.mcapMultiplier;
-    const requiredLiquidityEth = Math.max(MIN_INITIAL_LIQUIDITY_ETH, requiredLiquidityEthRaw);
+    const requiredLiquidityEth = Math.max(requiredMinLiquidityEth(walletState().address), requiredLiquidityEthRaw);
     if (Number.isFinite(requiredLiquidityEth) && requiredLiquidityEth >= 0) {
       ui.devBuyEth.value = requiredLiquidityEth.toFixed(6);
     }
@@ -449,10 +471,11 @@ function updateLaunchMath({ source = "liquidity" } = {}) {
     ui.launchMathPrimary.textContent = `Estimated launch market cap: ${formatUsd(economics.marketCapUsd)} (~${economics.marketCapEth.toFixed(4)} ETH)`;
   }
   if (ui.launchMathSecondary) {
-    ui.launchMathSecondary.textContent = `Minimum launch liquidity: ${economics.minLiquidityEth.toFixed(4)} ETH`;
+    const platformTag = isPlatformCreatorAddress(walletState().address) ? " (platform test wallet)" : "";
+    ui.launchMathSecondary.textContent = `Minimum launch liquidity: ${economics.minLiquidityEth.toFixed(4)} ETH${platformTag}`;
   }
   if (ui.launchMathTertiary) {
-    ui.launchMathTertiary.textContent = `Minimum launch market cap at 0.5 ETH: ${formatUsd(economics.minTargetMcapUsd)}`;
+    ui.launchMathTertiary.textContent = `Minimum launch market cap at ${economics.minLiquidityEth.toFixed(4)} ETH: ${formatUsd(economics.minTargetMcapUsd)}`;
   }
   if (ui.launchMathQuaternary) {
     ui.launchMathQuaternary.textContent = `At your settings, 1 ETH liquidity ~ ${formatUsd(economics.oneEthMcapUsd)} market cap`;
@@ -686,13 +709,15 @@ async function onCreate(event) {
       imageUri = makeFallbackImage(name, symbol);
     }
 
-    if (imageUri.startsWith("data:image/")) {
+  if (imageUri.startsWith("data:image/")) {
       const uploaded = await api.uploadImage(imageUri);
       imageUri = uploaded.url;
+      ui.image.value = imageUri;
     }
 
     if (imageUri.startsWith("data:image/")) {
       imageUri = `${window.location.origin}/assets/etherpump-logo.png`;
+      ui.image.value = imageUri;
       setAlert(
         ui.alert,
         "Image upload returned inline data. Using hosted fallback image to avoid gas-estimation failure."
@@ -706,9 +731,10 @@ async function onCreate(event) {
     if (initialLiquidityEth <= 0n) {
       throw new Error("Initial ETH liquidity is required for instant Uniswap launch");
     }
-    const minLiquidityWei = ethers.parseEther(String(MIN_INITIAL_LIQUIDITY_ETH));
+    const minLiquidityEthRequired = requiredMinLiquidityEth(ws.address);
+    const minLiquidityWei = ethers.parseEther(String(minLiquidityEthRequired));
     if (initialLiquidityEth < minLiquidityWei) {
-      throw new Error(`Minimum launch liquidity is ${MIN_INITIAL_LIQUIDITY_ETH} ETH`);
+      throw new Error(`Minimum launch liquidity is ${minLiquidityEthRequired} ETH`);
     }
     const creatorPct = deriveCreatorAllocationPct(parseNumberInput(initialLiquidityEthInput, 0), creatorBuyEth);
     if (creatorPct > 20) {
@@ -818,6 +844,8 @@ async function init() {
     onConnected: async () => {
       updateProfileIdentity();
       setProfileMenuOpen(false);
+      syncLiquidityInputMin();
+      updateLaunchMath({ source: "liquidity" });
       await walletHub?.refresh();
     }
   });
@@ -825,12 +853,16 @@ async function init() {
   ui.disconnectBtn?.addEventListener("click", () => {
     updateProfileIdentity();
     setProfileMenuOpen(false);
+    syncLiquidityInputMin();
+    updateLaunchMath({ source: "liquidity" });
     walletHub?.refresh();
   });
 
   ui.connectBtn?.addEventListener("click", () => {
     setTimeout(() => {
       updateProfileIdentity();
+      syncLiquidityInputMin();
+      updateLaunchMath({ source: "liquidity" });
       walletHub?.refresh();
     }, 20);
   });
@@ -838,6 +870,8 @@ async function init() {
   ui.walletSelect?.addEventListener("change", () => {
     setTimeout(() => {
       updateProfileIdentity();
+      syncLiquidityInputMin();
+      updateLaunchMath({ source: "liquidity" });
       walletHub?.refresh();
     }, 20);
   });
@@ -856,6 +890,7 @@ async function init() {
   setupCreatedModal();
   initCoinSearchOverlay({ triggerInputs: [ui.tokenSearchInput] });
   updatePreview();
+  syncLiquidityInputMin();
   updateLaunchMath({ source: "liquidity" });
   updateProfileIdentity();
   ui.createForm.addEventListener("submit", onCreate);

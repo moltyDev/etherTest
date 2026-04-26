@@ -15,7 +15,7 @@ import {
   setPreferredChainId,
   shortAddress,
   walletState
-} from "./core.js?v=20260426c";
+} from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
 import { initCoinSearchOverlay } from "./searchModal.js?v=20260424d";
 

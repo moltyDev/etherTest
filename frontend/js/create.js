@@ -19,7 +19,7 @@ import {
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
 import { initCoinSearchOverlay } from "./searchModal.js?v=20260424d";
 
-const MIN_LAUNCH_MCAP_USD = 2000;
+const MIN_INITIAL_LIQUIDITY_ETH = 0.5;
 
 const ui = {
   walletSelect: document.getElementById("walletChoice"),
@@ -388,8 +388,8 @@ function getLaunchEconomics(liquidityEthInput = parseNumberInput(ui.devBuyEth?.v
   const marketCapEth = liquidityEth * mcapMultiplier;
   const marketCapUsd = marketCapEth * ethUsd;
   const oneEthMcapUsd = mcapMultiplier * ethUsd;
-  const minLiquidityEth = (MIN_LAUNCH_MCAP_USD / ethUsd) / Math.max(mcapMultiplier, 0.000001);
-  const minTargetMcapUsd = MIN_LAUNCH_MCAP_USD;
+  const minLiquidityEth = MIN_INITIAL_LIQUIDITY_ETH;
+  const minTargetMcapUsd = minLiquidityEth * mcapMultiplier * ethUsd;
   return {
     totalSupply,
     creatorPct,
@@ -411,7 +411,8 @@ function updateLaunchMath({ source = "liquidity" } = {}) {
   const targetMcapUsdInput = parseNumberInput(ui.launchMcapUsd?.value, 0);
 
   if (source === "target" && targetMcapUsdInput > 0 && economicsFromLiquidity.mcapMultiplier > 0) {
-    const requiredLiquidityEth = (targetMcapUsdInput / Math.max(state.ethUsd, 1)) / economicsFromLiquidity.mcapMultiplier;
+    const requiredLiquidityEthRaw = (targetMcapUsdInput / Math.max(state.ethUsd, 1)) / economicsFromLiquidity.mcapMultiplier;
+    const requiredLiquidityEth = Math.max(MIN_INITIAL_LIQUIDITY_ETH, requiredLiquidityEthRaw);
     if (Number.isFinite(requiredLiquidityEth) && requiredLiquidityEth >= 0) {
       ui.devBuyEth.value = requiredLiquidityEth.toFixed(6);
     }
@@ -430,10 +431,10 @@ function updateLaunchMath({ source = "liquidity" } = {}) {
     ui.launchMathPrimary.textContent = `Estimated launch market cap: ${formatUsd(economics.marketCapUsd)} (~${economics.marketCapEth.toFixed(4)} ETH)`;
   }
   if (ui.launchMathSecondary) {
-    ui.launchMathSecondary.textContent = `Minimum launch market cap: ${formatUsd(economics.minTargetMcapUsd)}`;
+    ui.launchMathSecondary.textContent = `Minimum launch liquidity: ${economics.minLiquidityEth.toFixed(4)} ETH`;
   }
   if (ui.launchMathTertiary) {
-    ui.launchMathTertiary.textContent = `Required liquidity for minimum: ${economics.minLiquidityEth.toFixed(6)} ETH`;
+    ui.launchMathTertiary.textContent = `Minimum launch market cap at 0.5 ETH: ${formatUsd(economics.minTargetMcapUsd)}`;
   }
   if (ui.launchMathQuaternary) {
     ui.launchMathQuaternary.textContent = `At your settings, 1 ETH liquidity ≈ ${formatUsd(economics.oneEthMcapUsd)} market cap`;
@@ -657,11 +658,9 @@ async function onCreate(event) {
     if (initialLiquidityEth <= 0n) {
       throw new Error("Initial ETH liquidity is required for instant Uniswap launch");
     }
-    const economics = getLaunchEconomics(Number(ethers.formatEther(initialLiquidityEth)));
-    if (economics.marketCapUsd < MIN_LAUNCH_MCAP_USD) {
-      throw new Error(
-        `Minimum launch market cap is ${formatUsd(MIN_LAUNCH_MCAP_USD)}. Increase initial liquidity to at least ${economics.minLiquidityEth.toFixed(6)} ETH.`
-      );
+    const minLiquidityWei = ethers.parseEther(String(MIN_INITIAL_LIQUIDITY_ETH));
+    if (initialLiquidityEth < minLiquidityWei) {
+      throw new Error(`Minimum launch liquidity is ${MIN_INITIAL_LIQUIDITY_ETH} ETH`);
     }
     const launchFeeWei = BigInt(state.config?.deployment?.launchFeeWei || "0");
     const totalValue = initialLiquidityEth + launchFeeWei;

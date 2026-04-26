@@ -116,11 +116,12 @@ function loadWalletSession() {
   try {
     const raw = localStorage.getItem(WALLET_SESSION_KEY);
     const parsed = JSON.parse(raw || "{}");
-    if (!parsed || typeof parsed !== "object") return { connected: false, choice: "" };
+    if (!parsed || typeof parsed !== "object") return { connected: false, choice: "", address: "" };
     const choice = typeof parsed.choice === "string" ? parsed.choice : "";
-    return { connected: Boolean(parsed.connected), choice };
+    const address = normalizeProfileAddress(parsed.address || "");
+    return { connected: Boolean(parsed.connected), choice, address };
   } catch {
-    return { connected: false, choice: "" };
+    return { connected: false, choice: "", address: "" };
   }
 }
 
@@ -128,7 +129,11 @@ function saveWalletSession(partial = {}) {
   const prev = loadWalletSession();
   const next = {
     connected: typeof partial.connected === "boolean" ? partial.connected : prev.connected,
-    choice: typeof partial.choice === "string" ? partial.choice : prev.choice || ""
+    choice: typeof partial.choice === "string" ? partial.choice : prev.choice || "",
+    address:
+      typeof partial.address === "string"
+        ? normalizeProfileAddress(partial.address)
+        : prev.address || ""
   };
   try {
     localStorage.setItem(WALLET_SESSION_KEY, JSON.stringify(next));
@@ -523,7 +528,7 @@ export async function connectWallet(choice = "", options = {}) {
   }
 
   // Persist stable wallet key across page reloads; provider IDs may vary by session.
-  saveWalletSession({ connected: true, choice: wallet.key });
+  saveWalletSession({ connected: true, choice: wallet.key, address: state.address });
 
   return { ...state };
 }
@@ -534,7 +539,7 @@ export function disconnectWallet() {
   state.address = "";
   state.walletLabel = "";
   state.activeInjectedProvider = null;
-  saveWalletSession({ connected: false, choice: "" });
+  saveWalletSession({ connected: false, choice: "", address: "" });
 }
 
 export async function restoreWalletFromSession(choice = "") {

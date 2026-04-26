@@ -4,6 +4,7 @@ import {
   defaultUsername,
   disconnectWallet,
   ethers,
+  fetchEthUsdPrice,
   hydrateUserProfile,
   loadUserProfile,
   makeFallbackImage,
@@ -17,6 +18,8 @@ import {
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
 import { initCoinSearchOverlay } from "./searchModal.js?v=20260424d";
+
+const MIN_LAUNCH_MCAP_USD = 2000;
 
 const ui = {
   walletSelect: document.getElementById("walletChoice"),
@@ -72,6 +75,12 @@ const ui = {
   twitter: document.getElementById("twitter"),
   telegram: document.getElementById("telegram"),
   devBuyEth: document.getElementById("devBuyEth"),
+  launchMcapUsd: document.getElementById("launchMcapUsd"),
+  launchMathCard: document.getElementById("launchMathCard"),
+  launchMathPrimary: document.getElementById("launchMathPrimary"),
+  launchMathSecondary: document.getElementById("launchMathSecondary"),
+  launchMathTertiary: document.getElementById("launchMathTertiary"),
+  launchMathQuaternary: document.getElementById("launchMathQuaternary"),
   imagePreview: document.getElementById("imagePreview"),
   previewName: document.getElementById("previewName"),
   previewSymbol: document.getElementById("previewSymbol"),
@@ -97,7 +106,8 @@ const ui = {
 const MAX_IMAGE_BYTES = 900 * 1024;
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;
 const state = {
-  config: null
+  config: null,
+  ethUsd: 3000
 };
 
 let pendingProfileImageUri = "";
@@ -359,6 +369,96 @@ function showUploadBoxPreview(src) {
   ui.uploadCopy.style.display = "none";
 }
 
+function parseNumberInput(value, fallback = 0) {
+  const n = Number(String(value ?? "").trim());
+  return Number.isFinite(n) ? n : fallback;
+}
+
+function getLaunchEconomics(liquidityEthInput = parseNumberInput(ui.devBuyEth?.value, 0)) {
+  const totalSupply = parseNumberInput(ui.supply?.value, 0);
+  const creatorPct = parseNumberInput(ui.creatorAllocation?.value, 0);
+  const liquidityEth = Math.max(0, liquidityEthInput);
+  const ethUsd = Number.isFinite(state.ethUsd) && state.ethUsd > 0 ? state.ethUsd : 3000;
+
+  const creatorFraction = Math.min(Math.max(creatorPct / 100, 0), 0.2);
+  const poolFraction = Math.max(0.0001, 1 - creatorFraction);
+  const poolTokens = totalSupply * poolFraction;
+  const mcapMultiplier = poolTokens > 0 ? totalSupply / poolTokens : 0;
+
+  const marketCapEth = liquidityEth * mcapMultiplier;
+  const marketCapUsd = marketCapEth * ethUsd;
+  const oneEthMcapUsd = mcapMultiplier * ethUsd;
+  const minLiquidityEth = (MIN_LAUNCH_MCAP_USD / ethUsd) / Math.max(mcapMultiplier, 0.000001);
+  const minTargetMcapUsd = MIN_LAUNCH_MCAP_USD;
+  return {
+    totalSupply,
+    creatorPct,
+    poolFraction,
+    poolTokens,
+    mcapMultiplier,
+    liquidityEth,
+    marketCapEth,
+    marketCapUsd,
+    oneEthMcapUsd,
+    minLiquidityEth,
+    minTargetMcapUsd
+  };
+}
+
+function updateLaunchMath({ source = "liquidity" } = {}) {
+  if (!ui.launchMathCard) return;
+  const economicsFromLiquidity = getLaunchEconomics(parseNumberInput(ui.devBuyEth?.value, 0));
+  const targetMcapUsdInput = parseNumberInput(ui.launchMcapUsd?.value, 0);
+
+  if (source === "target" && targetMcapUsdInput > 0 && economicsFromLiquidity.mcapMultiplier > 0) {
+    const requiredLiquidityEth = (targetMcapUsdInput / Math.max(state.ethUsd, 1)) / economicsFromLiquidity.mcapMultiplier;
+    if (Number.isFinite(requiredLiquidityEth) && requiredLiquidityEth >= 0) {
+      ui.devBuyEth.value = requiredLiquidityEth.toFixed(6);
+    }
+  }
+
+  const economics = getLaunchEconomics(parseNumberInput(ui.devBuyEth?.value, 0));
+  if (source === "liquidity" && ui.launchMcapUsd) {
+    const nextTarget = economics.marketCapUsd > 0 ? economics.marketCapUsd : 0;
+    ui.launchMcapUsd.value = nextTarget.toFixed(2);
+  }
+
+  const meetsMin = economics.marketCapUsd >= economics.minTargetMcapUsd;
+  ui.launchMathCard.classList.toggle("invalid", !meetsMin);
+
+  if (ui.launchMathPrimary) {
+    ui.launchMathPrimary.textContent = `Estimated launch market cap: ${formatUsd(economics.marketCapUsd)} (~${economics.marketCapEth.toFixed(4)} ETH)`;
+  }
+  if (ui.launchMathSecondary) {
+    ui.launchMathSecondary.textContent = `Minimum launch market cap: ${formatUsd(economics.minTargetMcapUsd)}`;
+  }
+  if (ui.launchMathTertiary) {
+    ui.launchMathTertiary.textContent = `Required liquidity for minimum: ${economics.minLiquidityEth.toFixed(6)} ETH`;
+  }
+  if (ui.launchMathQuaternary) {
+    ui.launchMathQuaternary.textContent = `At your settings, 1 ETH liquidity ≈ ${formatUsd(economics.oneEthMcapUsd)} market cap`;
+  }
+}
+
+function formatUsd(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "$0";
+  if (n >= 1000) {
+    return new Intl.NumberFormat("en-US", {
+      style: "currency",
+      currency: "USD",
+      notation: "compact",
+      compactDisplay: "short",
+      maximumFractionDigits: 2
+    }).format(n);
+  }
+  return new Intl.NumberFormat("en-US", {
+    style: "currency",
+    currency: "USD",
+    maximumFractionDigits: 0
+  }).format(n);
+}
+
 function updatePreview() {
   const name = ui.name.value.trim() || "Your Coin";
   const symbol = ui.symbol.value.trim().toUpperCase() || "TICKER";
@@ -410,6 +510,10 @@ function setupFormEnhancements() {
   ui.symbol.addEventListener("input", onInput);
   ui.description.addEventListener("input", onInput);
   ui.image.addEventListener("input", onInput);
+  ui.supply?.addEventListener("input", () => updateLaunchMath({ source: "liquidity" }));
+  ui.creatorAllocation?.addEventListener("input", () => updateLaunchMath({ source: "liquidity" }));
+  ui.devBuyEth?.addEventListener("input", () => updateLaunchMath({ source: "liquidity" }));
+  ui.launchMcapUsd?.addEventListener("input", () => updateLaunchMath({ source: "target" }));
   ui.pickFileBtn?.addEventListener("click", () => {
     ui.imageFile?.click();
   });
@@ -553,6 +657,12 @@ async function onCreate(event) {
     if (initialLiquidityEth <= 0n) {
       throw new Error("Initial ETH liquidity is required for instant Uniswap launch");
     }
+    const economics = getLaunchEconomics(Number(ethers.formatEther(initialLiquidityEth)));
+    if (economics.marketCapUsd < MIN_LAUNCH_MCAP_USD) {
+      throw new Error(
+        `Minimum launch market cap is ${formatUsd(MIN_LAUNCH_MCAP_USD)}. Increase initial liquidity to at least ${economics.minLiquidityEth.toFixed(6)} ETH.`
+      );
+    }
     const launchFeeWei = BigInt(state.config?.deployment?.launchFeeWei || "0");
     const totalValue = initialLiquidityEth + launchFeeWei;
 
@@ -605,6 +715,7 @@ async function onCreate(event) {
 
     ui.createForm.reset();
     updatePreview();
+    updateLaunchMath({ source: "liquidity" });
     setAlert(ui.alert, "Launch created on Uniswap successfully");
   } catch (err) {
     setAlert(ui.alert, parseUiError(err), true);
@@ -612,6 +723,12 @@ async function onCreate(event) {
 }
 
 async function init() {
+  try {
+    state.ethUsd = await fetchEthUsdPrice();
+  } catch {
+    state.ethUsd = 3000;
+  }
+
   state.config = await api.config();
   setPreferredChainId(Number(state.config.chainId || 1));
   ui.netChip.textContent = `Chain ${state.config.chainId}`;
@@ -684,6 +801,7 @@ async function init() {
   setupCreatedModal();
   initCoinSearchOverlay({ triggerInputs: [ui.tokenSearchInput] });
   updatePreview();
+  updateLaunchMath({ source: "liquidity" });
   updateProfileIdentity();
   ui.createForm.addEventListener("submit", onCreate);
 }

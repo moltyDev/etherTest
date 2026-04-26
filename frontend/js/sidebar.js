@@ -89,10 +89,11 @@
       const parsed = JSON.parse(raw || "{}");
       return {
         connected: Boolean(parsed?.connected),
-        choice: String(parsed?.choice || "")
+        choice: String(parsed?.choice || ""),
+        address: normalizeAddress(parsed?.address || "")
       };
     } catch {
-      return { connected: false, choice: "" };
+      return { connected: false, choice: "", address: "" };
     }
   }
 
@@ -164,7 +165,7 @@
     const session = readWalletSession();
     if (!session.connected) return "";
     const root = window.ethereum;
-    if (!root) return "";
+    if (!root) return session.address || "";
 
     const providers = Array.isArray(root.providers) && root.providers.length ? root.providers : [root];
     for (const provider of providers) {
@@ -184,7 +185,7 @@
         // ignore
       }
     }
-    return "";
+    return session.address || "";
   }
 
   async function refreshCreatorRewardsCard() {

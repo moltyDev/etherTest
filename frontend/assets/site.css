@@ -2367,6 +2367,32 @@ button:disabled {
   content: " ^";
 }
 
+.create-launch-math {
+  border: 1px solid rgba(138, 146, 178, 0.34);
+  border-radius: 12px;
+  background: rgba(20, 26, 43, 0.7);
+  padding: 0.7rem 0.8rem;
+  display: grid;
+  gap: 0.28rem;
+}
+
+.create-launch-math p {
+  margin: 0;
+  font-size: 0.78rem;
+  color: #cfd8f6;
+}
+
+.create-launch-math p:first-child {
+  font-size: 0.83rem;
+  font-weight: 700;
+  color: #eff4ff;
+}
+
+.create-launch-math.invalid {
+  border-color: rgba(255, 126, 148, 0.58);
+  background: rgba(59, 20, 34, 0.32);
+}
+
 .create-submit-row {
   display: grid;
   gap: 0.75rem;

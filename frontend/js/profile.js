@@ -68,6 +68,7 @@ const ui = {
   profileCopyAddressBtn: document.getElementById("profileCopyAddressBtn"),
   profileEtherscanLink: document.getElementById("profileEtherscanLink"),
   profileHeroAvatar: document.getElementById("profileHeroAvatar"),
+  profileFollowBtn: document.getElementById("profileFollowBtn"),
   statFollowers: document.getElementById("statFollowers"),
   statFollowing: document.getElementById("statFollowing"),
   statCreated: document.getElementById("statCreated"),
@@ -96,7 +97,9 @@ const state = {
   ethUsd: 3000,
   chainId: 1,
   socialLoaded: false,
-  socialLoading: false
+  socialLoading: false,
+  isFollowingProfile: false,
+  followBusy: false
 };
 let walletHub = null;
 let walletControls = null;
@@ -134,6 +137,17 @@ function normalizeAddress(input) {
   } catch {
     return "";
   }
+}
+
+function connectedAddress() {
+  return normalizeAddress(walletState().address || "");
+}
+
+function viewingOwnProfile() {
+  const viewer = connectedAddress();
+  const target = normalizeAddress(state.address || "");
+  if (!viewer || !target) return false;
+  return viewer.toLowerCase() === target.toLowerCase();
 }
 
 async function copyText(value) {
@@ -214,6 +228,7 @@ function updateProfileIdentity() {
   if (ui.profileNavSide) ui.profileNavSide.href = profileHref;
   setAvatar(ui.profileAvatar, avatarText, imageUri);
   setAvatar(ui.profileAvatarLarge, avatarText, imageUri);
+  syncFollowButton();
 
   if (ui.editProfileBtn) {
     ui.editProfileBtn.disabled = !connected;
@@ -239,6 +254,12 @@ function updateProfileIdentity() {
       }
     }).catch(() => {
       // ignore profile hydration failures
+    });
+  }
+
+  if (state.address) {
+    refreshFollowState().catch(() => {
+      // ignore follow-state refresh failures
     });
   }
 }
@@ -309,6 +330,7 @@ function renderProfileHeader(address) {
       ui.profileEtherscanLink.href = "#";
     }
     setAvatar(ui.profileHeroAvatar, "EP", "");
+    syncFollowButton();
     return;
   }
 
@@ -335,6 +357,58 @@ function renderProfileHeader(address) {
     }
   }
   setAvatar(ui.profileHeroAvatar, username.slice(0, 2).toUpperCase(), profile.imageUri || "");
+  syncFollowButton();
+}
+
+function syncFollowButton() {
+  if (!ui.profileFollowBtn) return;
+  const viewer = connectedAddress();
+  const target = normalizeAddress(state.address || "");
+  const own = viewingOwnProfile();
+
+  if (!viewer || !target || own) {
+    ui.profileFollowBtn.hidden = true;
+    ui.profileFollowBtn.disabled = false;
+    ui.profileFollowBtn.textContent = "Follow";
+    return;
+  }
+
+  ui.profileFollowBtn.hidden = false;
+  ui.profileFollowBtn.disabled = state.followBusy;
+  ui.profileFollowBtn.textContent = state.followBusy
+    ? "Saving..."
+    : state.isFollowingProfile
+      ? "Following"
+      : "Follow";
+}
+
+async function refreshFollowState() {
+  if (!ui.profileFollowBtn) return;
+  const viewer = connectedAddress();
+  const target = normalizeAddress(state.address || "");
+  if (!viewer || !target || viewer.toLowerCase() === target.toLowerCase()) {
+    state.isFollowingProfile = false;
+    syncFollowButton();
+    return;
+  }
+
+  try {
+    const payload = await api.followState(viewer, target);
+    state.isFollowingProfile = Boolean(payload?.isFollowing);
+    if (state.payload) {
+      state.payload.followersCount = Number(payload?.followersCount || state.payload.followersCount || 0);
+      state.payload.followingCount = Number(payload?.followingCount || state.payload.followingCount || 0);
+      state.payload.socialIncluded = true;
+      setSummary(state.payload);
+      if (state.activeTab === "followers") {
+        await loadSocialIfNeeded();
+      }
+    }
+  } catch {
+    // no-op
+  } finally {
+    syncFollowButton();
+  }
 }
 
 function setupAddressCopy() {
@@ -464,7 +538,8 @@ function renderFollowersTab(payload) {
   const followerHtml = followers.length
     ? followers
         .map((row) => {
-          const detail = Array.isArray(row.details) && row.details.length ? row.details[0] : "Trader";
+          const detail = Array.isArray(row.details) && row.details.length ? row.details[0] : "Follower";
+          const interactions = Math.max(1, Number(row.interactions || 1));
           return `
             <a class="profile-follow-row" href="/profile?address=${row.address}">
               <div>
@@ -472,7 +547,7 @@ function renderFollowersTab(payload) {
                 <span>${shortAddress(row.address)}</span>
               </div>
               <div class="profile-follow-meta">
-                <b>${row.interactions}x</b>
+                <b>${interactions}x</b>
                 <span>${detail}</span>
               </div>
             </a>
@@ -485,6 +560,7 @@ function renderFollowersTab(payload) {
     ? following
         .map((row) => {
           const detail = Array.isArray(row.details) && row.details.length ? row.details[0] : "Following";
+          const interactions = Math.max(1, Number(row.interactions || 1));
           return `
             <a class="profile-follow-row" href="/profile?address=${row.address}">
               <div>
@@ -492,7 +568,7 @@ function renderFollowersTab(payload) {
                 <span>${shortAddress(row.address)}</span>
               </div>
               <div class="profile-follow-meta">
-                <b>${row.interactions}x</b>
+                <b>${interactions}x</b>
                 <span>${detail}</span>
               </div>
             </a>
@@ -714,14 +790,11 @@ function setupCreatorRewardsActions() {
 function setSummary(payload) {
   const created = payload.created || [];
   const holdings = payload.holdings || [];
-  const socialIncluded = Boolean(payload.socialIncluded);
-  const followersCount = socialIncluded
-    ? Number(payload.followersCount || (payload.followers || []).length || 0)
-    : null;
+  const followersCount = Number(payload.followersCount || (payload.followers || []).length || 0);
   const followingCount = Number(payload.followingCount || (payload.following || []).length || 0);
   const valueWei = computePortfolioValueWei(holdings);
 
-  if (ui.statFollowers) ui.statFollowers.textContent = followersCount === null ? "-" : String(followersCount);
+  if (ui.statFollowers) ui.statFollowers.textContent = String(followersCount);
   if (ui.statFollowing) ui.statFollowing.textContent = String(followingCount);
   if (ui.statCreated) ui.statCreated.textContent = String(created.length);
   if (ui.statValue) ui.statValue.textContent = formatCompactUsd(weiToUsd(valueWei, state.ethUsd));
@@ -765,6 +838,7 @@ async function loadProfile(address) {
   state.socialLoading = false;
   setSummary(payload);
   renderActiveTab();
+  await refreshFollowState();
 }
 
 async function loadConfig() {
@@ -938,6 +1012,36 @@ function setupAddressControls() {
   });
 }
 
+function setupFollowButton() {
+  ui.profileFollowBtn?.addEventListener("click", async () => {
+    try {
+      const viewer = connectedAddress();
+      const target = normalizeAddress(state.address || "");
+      if (!viewer) {
+        throw new Error("Connect wallet first");
+      }
+      if (!target) {
+        throw new Error("Load a profile first");
+      }
+      if (viewer.toLowerCase() === target.toLowerCase()) {
+        return;
+      }
+
+      state.followBusy = true;
+      syncFollowButton();
+      const payload = await api.setFollow(viewer, target, !state.isFollowingProfile);
+      state.isFollowingProfile = Boolean(payload?.isFollowing);
+      setAlert(ui.alert, state.isFollowingProfile ? "Followed profile" : "Unfollowed profile");
+      await loadProfile(target);
+    } catch (err) {
+      setAlert(ui.alert, parseUiError(err), true);
+    } finally {
+      state.followBusy = false;
+      syncFollowButton();
+    }
+  });
+}
+
 async function init() {
   try {
     await refreshEthUsd();
@@ -1013,6 +1117,7 @@ async function init() {
   setupProfileMenu();
   setupEditProfileModal();
   setupAddressControls();
+  setupFollowButton();
   initCoinSearchOverlay({ triggerInputs: [ui.profileAddressInput] });
   setupAddressCopy();
   setupTabs();

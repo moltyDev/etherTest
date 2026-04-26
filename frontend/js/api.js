@@ -65,5 +65,13 @@ export const api = {
   userProfile: (address) => apiGet(`/api/user-profile/${address}`),
   userProfiles: (addresses = []) => apiPost("/api/user-profiles", { addresses }),
   saveUserProfile: (address, body = {}) => apiPost(`/api/user-profile/${address}`, body),
+  followState: (viewer, target) =>
+    apiGet(`/api/follow/state?viewer=${encodeURIComponent(String(viewer || ""))}&target=${encodeURIComponent(String(target || ""))}`),
+  setFollow: (viewer, target, follow) =>
+    apiPost("/api/follow", {
+      viewer,
+      target,
+      follow: Boolean(follow)
+    }),
   uploadImage: (dataUrl) => apiPost("/api/upload-image", { dataUrl })
 };

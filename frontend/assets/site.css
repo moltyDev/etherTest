@@ -1338,6 +1338,17 @@ button:disabled {
   font-size: 1.5rem;
 }
 
+.profile-name-row {
+  display: flex;
+  align-items: center;
+  gap: 0.55rem;
+  flex-wrap: wrap;
+}
+
+.profile-follow-btn {
+  min-width: 88px;
+}
+
 .profile-hero-text p {
   margin: 0.28rem 0 0;
   color: var(--muted);

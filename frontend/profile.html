@@ -11,7 +11,7 @@
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&display=swap" rel="stylesheet" />
-    <link rel="stylesheet" href="/assets/site.css?v=20260425k" />
+    <link rel="stylesheet" href="/assets/site.css?v=20260425p" />
   </head>
   <body>
     <div class="app-shell">
@@ -211,7 +211,10 @@
               <div class="profile-hero-main">
                 <span id="profileHeroAvatar" class="profile-avatar profile-hero-avatar">EP</span>
                 <div class="profile-hero-text">
-                  <h2 id="profileResolvedName">Guest</h2>
+                  <div class="profile-name-row">
+                    <h2 id="profileResolvedName">Guest</h2>
+                    <button id="profileFollowBtn" class="btn-primary tiny profile-follow-btn" type="button" hidden>Follow</button>
+                  </div>
                   <div class="profile-address-row">
                     <p id="profileResolvedAddress">No address loaded</p>
                     <button id="profileCopyAddressBtn" class="addr-copy-btn copy-pill-btn" type="button" hidden>Copy</button>
@@ -319,7 +322,7 @@
     </div>
 
     <script src="/js/sidebar.js?v=20260425n"></script>
-    <script type="module" src="/js/profile.js?v=20260425m"></script>
+    <script type="module" src="/js/profile.js?v=20260425p"></script>
   </body>
 </html>
 

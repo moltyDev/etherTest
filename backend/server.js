@@ -17,11 +17,13 @@ const UPLOADS_DIR = path.join(FRONTEND_DIR, "uploads");
 const IS_VERCEL_RUNTIME = Boolean(process.env.VERCEL);
 const UPLOAD_MODE = String(process.env.UPLOAD_MODE || (IS_VERCEL_RUNTIME ? "inline" : "disk")).toLowerCase();
 const PROFILE_DB_PATH = IS_VERCEL_RUNTIME ? path.join("/tmp", "etherpump-profiles.json") : path.join(ROOT, "cache", "profiles.json");
+const FOLLOW_DB_PATH = IS_VERCEL_RUNTIME ? path.join("/tmp", "etherpump-follows.json") : path.join(ROOT, "cache", "follows.json");
 const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const SUPABASE_SERVICE_ROLE_KEY = String(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || ""
 ).trim();
 const SUPABASE_PROFILE_TABLE = String(process.env.SUPABASE_PROFILE_TABLE || "user_profiles").trim();
+const SUPABASE_FOLLOW_TABLE = String(process.env.SUPABASE_FOLLOW_TABLE || "user_follows").trim();
 const SUPABASE_SCHEMA = String(process.env.SUPABASE_SCHEMA || "public").trim();
 const PROFILE_IMAGE_URI_MAX_LENGTH = 2 * 1024 * 1024;
 const STRICT_PROFILE_STORE = String(process.env.STRICT_PROFILE_STORE || (IS_VERCEL_RUNTIME ? "1" : "0")) === "1";
@@ -94,6 +96,7 @@ const dexTokenCache = new Map();
 const geckoIndexedSticky = new Set();
 const pairTradesCache = new Map();
 let profileDbCache = null;
+let followDbCache = null;
 const profileLastKnownCache = new Map();
 
 function getCachedValue(cache, key) {
@@ -690,6 +693,293 @@ async function setPersistedProfile(address, value = {}) {
   const saved = setPersistedProfileSync(normalized, next);
   cacheProfileRow(normalized, saved);
   return saved;
+}
+
+function readFollowDb() {
+  if (followDbCache && typeof followDbCache === "object") {
+    return followDbCache;
+  }
+
+  try {
+    if (fs.existsSync(FOLLOW_DB_PATH)) {
+      const raw = fs.readFileSync(FOLLOW_DB_PATH, "utf8");
+      const parsed = JSON.parse(raw || "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        followDbCache = parsed;
+        return followDbCache;
+      }
+    }
+  } catch {
+    // fall through to empty store
+  }
+
+  followDbCache = {};
+  return followDbCache;
+}
+
+function writeFollowDb(store) {
+  fs.mkdirSync(path.dirname(FOLLOW_DB_PATH), { recursive: true });
+  fs.writeFileSync(FOLLOW_DB_PATH, JSON.stringify(store, null, 2));
+  followDbCache = store;
+}
+
+function followEdgeKey(followerAddress, followeeAddress) {
+  return `${String(followerAddress || "").toLowerCase()}=>${String(followeeAddress || "").toLowerCase()}`;
+}
+
+function parseFollowTimestamp(value) {
+  const unix = parseUnixTimestamp(value);
+  return unix > 0 ? unix : Math.floor(Date.now() / 1000);
+}
+
+function normalizeFollowEdge(row = {}) {
+  const follower = normalizeAddress(row.follower || row.from || row.address || "");
+  const followee = normalizeAddress(row.followee || row.target || row.to || "");
+  if (!follower || !followee) return null;
+  return {
+    follower,
+    followee,
+    createdAt: parseFollowTimestamp(row.createdAt || row.created_at || row.inserted_at || row.createdon || row.ts)
+  };
+}
+
+function listFollowEdgesFromStore(address) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) {
+    return { followers: [], following: [] };
+  }
+
+  const followers = [];
+  const following = [];
+  const store = readFollowDb();
+  for (const value of Object.values(store)) {
+    const edge = normalizeFollowEdge(value);
+    if (!edge) continue;
+    if (edge.followee.toLowerCase() === normalized.toLowerCase()) {
+      followers.push(edge);
+    }
+    if (edge.follower.toLowerCase() === normalized.toLowerCase()) {
+      following.push(edge);
+    }
+  }
+
+  followers.sort((a, b) => b.createdAt - a.createdAt);
+  following.sort((a, b) => b.createdAt - a.createdAt);
+  return { followers, following };
+}
+
+function hasFollowInStore(followerAddress, followeeAddress) {
+  const follower = normalizeAddress(followerAddress);
+  const followee = normalizeAddress(followeeAddress);
+  if (!follower || !followee) return false;
+  const store = readFollowDb();
+  return Boolean(store[followEdgeKey(follower, followee)]);
+}
+
+function setFollowInStore(followerAddress, followeeAddress, follow = true) {
+  const follower = normalizeAddress(followerAddress);
+  const followee = normalizeAddress(followeeAddress);
+  if (!follower || !followee) throw new Error("Invalid follow addresses");
+
+  const key = followEdgeKey(follower, followee);
+  const store = readFollowDb();
+
+  if (follow) {
+    store[key] = {
+      follower: follower.toLowerCase(),
+      followee: followee.toLowerCase(),
+      createdAt: Math.floor(Date.now() / 1000)
+    };
+  } else {
+    delete store[key];
+  }
+
+  writeFollowDb(store);
+}
+
+function isSupabaseFollowConfigured() {
+  return Boolean(isSupabaseConfigured() && SUPABASE_FOLLOW_TABLE);
+}
+
+async function getSupabaseFollowEdgesForAddress(address) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) {
+    return { followers: [], following: [] };
+  }
+
+  const key = normalized.toLowerCase();
+  const [followersRows, followingRows] = await Promise.all([
+    supabaseRequest(SUPABASE_FOLLOW_TABLE, {
+      query: {
+        select: "*",
+        followee: `eq.${key}`
+      }
+    }),
+    supabaseRequest(SUPABASE_FOLLOW_TABLE, {
+      query: {
+        select: "*",
+        follower: `eq.${key}`
+      }
+    })
+  ]);
+
+  const followers = (Array.isArray(followersRows) ? followersRows : [])
+    .map((row) => normalizeFollowEdge(row))
+    .filter(Boolean)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  const following = (Array.isArray(followingRows) ? followingRows : [])
+    .map((row) => normalizeFollowEdge(row))
+    .filter(Boolean)
+    .sort((a, b) => b.createdAt - a.createdAt);
+
+  return { followers, following };
+}
+
+async function hasSupabaseFollow(followerAddress, followeeAddress) {
+  const follower = normalizeAddress(followerAddress);
+  const followee = normalizeAddress(followeeAddress);
+  if (!follower || !followee) return false;
+
+  const rows = await supabaseRequest(SUPABASE_FOLLOW_TABLE, {
+    query: {
+      select: "follower,followee",
+      follower: `eq.${follower.toLowerCase()}`,
+      followee: `eq.${followee.toLowerCase()}`,
+      limit: 1
+    }
+  });
+  return Array.isArray(rows) && rows.length > 0;
+}
+
+async function setFollowInSupabase(followerAddress, followeeAddress, follow = true) {
+  const follower = normalizeAddress(followerAddress);
+  const followee = normalizeAddress(followeeAddress);
+  if (!follower || !followee) throw new Error("Invalid follow addresses");
+
+  if (follow) {
+    await supabaseRequest(SUPABASE_FOLLOW_TABLE, {
+      method: "POST",
+      query: {
+        on_conflict: "follower,followee"
+      },
+      body: [
+        {
+          follower: follower.toLowerCase(),
+          followee: followee.toLowerCase()
+        }
+      ],
+      prefer: "resolution=merge-duplicates,return=minimal"
+    });
+    return;
+  }
+
+  await supabaseRequest(SUPABASE_FOLLOW_TABLE, {
+    method: "DELETE",
+    query: {
+      follower: `eq.${follower.toLowerCase()}`,
+      followee: `eq.${followee.toLowerCase()}`
+    }
+  });
+}
+
+function mapFollowRows(edges = [], mode = "followers") {
+  return edges.map((edge) => {
+    const address = mode === "followers" ? edge.follower : edge.followee;
+    return {
+      address,
+      interactions: 1,
+      details: [mode === "followers" ? "Follower" : "Following"],
+      createdAt: edge.createdAt
+    };
+  });
+}
+
+async function getPersistedSocialGraph(address) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) {
+    return { followers: [], following: [] };
+  }
+
+  try {
+    if (isSupabaseFollowConfigured()) {
+      const edges = await getSupabaseFollowEdgesForAddress(normalized);
+      return {
+        followers: mapFollowRows(edges.followers, "followers"),
+        following: mapFollowRows(edges.following, "following")
+      };
+    }
+  } catch (error) {
+    console.warn(`Supabase follow read failed: ${error?.message || "connection error"}`);
+  }
+
+  const edges = listFollowEdgesFromStore(normalized);
+  return {
+    followers: mapFollowRows(edges.followers, "followers"),
+    following: mapFollowRows(edges.following, "following")
+  };
+}
+
+async function getFollowState(viewerAddress, targetAddress) {
+  const viewer = normalizeAddress(viewerAddress);
+  const target = normalizeAddress(targetAddress);
+  if (!viewer || !target) {
+    return { viewer, target, isFollowing: false, followersCount: 0, followingCount: 0 };
+  }
+
+  try {
+    if (isSupabaseFollowConfigured()) {
+      const [isFollowing, targetSocial, viewerSocial] = await Promise.all([
+        hasSupabaseFollow(viewer, target),
+        getSupabaseFollowEdgesForAddress(target),
+        getSupabaseFollowEdgesForAddress(viewer)
+      ]);
+      return {
+        viewer,
+        target,
+        isFollowing,
+        followersCount: targetSocial.followers.length,
+        followingCount: viewerSocial.following.length
+      };
+    }
+  } catch (error) {
+    console.warn(`Supabase follow state failed: ${error?.message || "connection error"}`);
+  }
+
+  const targetSocial = listFollowEdgesFromStore(target);
+  const viewerSocial = listFollowEdgesFromStore(viewer);
+  return {
+    viewer,
+    target,
+    isFollowing: hasFollowInStore(viewer, target),
+    followersCount: targetSocial.followers.length,
+    followingCount: viewerSocial.following.length
+  };
+}
+
+async function setFollowState(viewerAddress, targetAddress, follow = true) {
+  const viewer = normalizeAddress(viewerAddress);
+  const target = normalizeAddress(targetAddress);
+  if (!viewer || !target) throw new Error("Invalid address");
+  if (viewer.toLowerCase() === target.toLowerCase()) {
+    throw new Error("You cannot follow yourself");
+  }
+
+  let persisted = false;
+  try {
+    if (isSupabaseFollowConfigured()) {
+      await setFollowInSupabase(viewer, target, follow);
+      persisted = true;
+    }
+  } catch (error) {
+    console.warn(`Supabase follow write failed: ${error?.message || "connection error"}`);
+  }
+
+  if (!persisted) {
+    setFollowInStore(viewer, target, follow);
+  }
+
+  clearProfileDependentCaches();
+  return getFollowState(viewer, target);
 }
 
 function clearProfileDependentCaches() {
@@ -1669,6 +1959,37 @@ app.post("/api/user-profiles", async (req, res) => {
   }
 });
 
+app.get("/api/follow/state", async (req, res) => {
+  try {
+    const viewer = normalizeAddress(req.query.viewer);
+    const target = normalizeAddress(req.query.target);
+    if (!viewer || !target) {
+      return res.status(400).json({ error: "viewer and target are required" });
+    }
+    const payload = await getFollowState(viewer, target);
+    res.json(payload);
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to load follow state" });
+  }
+});
+
+app.post("/api/follow", async (req, res) => {
+  try {
+    const viewer = normalizeAddress(req.body?.viewer);
+    const target = normalizeAddress(req.body?.target);
+    const follow = Boolean(req.body?.follow);
+    if (!viewer || !target) {
+      return res.status(400).json({ error: "viewer and target are required" });
+    }
+    const payload = await setFollowState(viewer, target, follow);
+    res.json(payload);
+  } catch (error) {
+    const message = String(error?.message || "Failed to update follow state");
+    const status = message.toLowerCase().includes("follow yourself") ? 400 : 500;
+    res.status(status).json({ error: message });
+  }
+});
+
 app.get("/api/stats", async (req, res) => {
   try {
     const deployment = loadDeploymentConfig();
@@ -1840,10 +2161,7 @@ app.get("/api/profile/:address", async (req, res) => {
     const deployment = loadDeploymentConfig();
     const requestedChainId = resolveRequestedChainId(req, deployment);
     const ctx = await getContext(requestedChainId);
-    const includeSocial = String(req.query.includeSocial || "").toLowerCase() === "1";
-    const cacheKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${address.toLowerCase()}:${
-      includeSocial ? "social" : "lite"
-    }`;
+    const cacheKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${address.toLowerCase()}:social-v2`;
     const cachedProfile = getCachedValue(profileCache, cacheKey);
     if (cachedProfile) {
       return res.json(cachedProfile);
@@ -1853,11 +2171,8 @@ app.get("/api/profile/:address", async (req, res) => {
 
     const created = [];
     const holdings = [];
-    const socialSourceLaunches = [];
     const poolCache = new Map();
     const tokenFeeCache = new Map();
-    const followersMap = new Map();
-    const followingMap = new Map();
 
     async function getPoolForLaunch(launch) {
       const key = launch.pool.toLowerCase();
@@ -1873,18 +2188,6 @@ app.get("/api/profile/:address", async (req, res) => {
         tokenFeeCache.set(key, await readTokenFeeSnapshot(ctx.provider, launch.token));
       }
       return tokenFeeCache.get(key);
-    }
-
-    function bumpFollow(map, targetAddress, detail = "") {
-      const normalized = normalizeAddress(targetAddress);
-      if (!normalized || normalized.toLowerCase() === address.toLowerCase()) return;
-      const key = normalized.toLowerCase();
-      const prev = map.get(key) || { address: normalized, interactions: 0, details: [] };
-      prev.interactions += 1;
-      if (detail && !prev.details.includes(detail)) {
-        prev.details.push(detail);
-      }
-      map.set(key, prev);
     }
 
     const balances = await mapWithConcurrency(launchList, MAX_BALANCE_READ_CONCURRENCY, async (launch) => {
@@ -1911,7 +2214,6 @@ app.get("/api/profile/:address", async (req, res) => {
           holderBalance: balance.toString(),
           holderBalanceFloat: toFloat(balance)
         });
-        socialSourceLaunches.push(launch);
       }
 
       if (balance > 0n) {
@@ -1925,34 +2227,11 @@ app.get("/api/profile/:address", async (req, res) => {
           holderBalance: balance.toString(),
           holderBalanceFloat: toFloat(balance)
         });
-
-        bumpFollow(followingMap, launch.creator, `Holding ${launch.symbol}`);
       }
     }
-
-    if (ENABLE_ONCHAIN_SOCIAL_LOGS && includeSocial && socialSourceLaunches.length) {
-      const latestBlock = await ctx.provider.getBlockNumber();
-      const fromBlock = Math.max(0, latestBlock - 120_000);
-      const participantSets = await mapWithConcurrency(
-        socialSourceLaunches,
-        MAX_SOCIAL_POOL_CONCURRENCY,
-        async (launch) => readPoolParticipants(ctx.provider, launch.pool, fromBlock, latestBlock)
-      );
-
-      for (let i = 0; i < participantSets.length; i++) {
-        const launch = socialSourceLaunches[i];
-        const participants = participantSets[i] || [];
-        for (const participant of participants) {
-          const note = participant.interactions > 1 ? `${participant.interactions} trades` : "1 trade";
-          bumpFollow(followersMap, participant.address, `${launch.symbol}: ${note}`);
-        }
-      }
-    }
-
-    const followers = includeSocial
-      ? Array.from(followersMap.values()).sort((a, b) => b.interactions - a.interactions)
-      : [];
-    const following = Array.from(followingMap.values()).sort((a, b) => b.interactions - a.interactions);
+    const social = await getPersistedSocialGraph(address);
+    const followers = Array.isArray(social.followers) ? social.followers : [];
+    const following = Array.isArray(social.following) ? social.following : [];
     const creatorRewardsTotalWei = created.reduce(
       (sum, row) => sum + BigInt(row?.feeSnapshot?.creatorClaimableWei || "0"),
       0n
@@ -1976,11 +2255,11 @@ app.get("/api/profile/:address", async (req, res) => {
       creatorRewardsCombinedTotalTokens: toFloat(creatorRewardsCombinedTotalWei),
       followers,
       following,
-      followersCount: includeSocial ? followers.length : null,
+      followersCount: followers.length,
       followingCount: following.length,
-      socialIncluded: includeSocial
+      socialIncluded: true
     };
-    setCachedValue(profileCache, cacheKey, payload, includeSocial ? PROFILE_SOCIAL_CACHE_TTL_MS : PROFILE_CACHE_TTL_MS);
+    setCachedValue(profileCache, cacheKey, payload, PROFILE_SOCIAL_CACHE_TTL_MS);
     res.json(payload);
   } catch (error) {
     res.status(500).json({ error: error.message });

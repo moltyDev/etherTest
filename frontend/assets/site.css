@@ -701,6 +701,10 @@ button:disabled {
   opacity: 0.5;
 }
 
+[hidden] {
+  display: none !important;
+}
+
 .btn-primary {
   background: linear-gradient(90deg, var(--accent), var(--accent-2));
 }

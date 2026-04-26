@@ -393,12 +393,14 @@ function syncFollowButton() {
 
   if (!viewer || !target || own) {
     ui.profileFollowBtn.hidden = true;
+    ui.profileFollowBtn.style.display = "none";
     ui.profileFollowBtn.disabled = false;
     ui.profileFollowBtn.textContent = "Follow";
     return;
   }
 
   ui.profileFollowBtn.hidden = false;
+  ui.profileFollowBtn.style.display = "inline-flex";
   ui.profileFollowBtn.disabled = state.followBusy;
   ui.profileFollowBtn.textContent = state.followBusy
     ? "Saving..."

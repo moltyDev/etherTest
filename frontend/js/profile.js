@@ -65,6 +65,7 @@ const ui = {
   profileLoadBtn: document.getElementById("profileLoadBtn"),
   profileResolvedName: document.getElementById("profileResolvedName"),
   profileResolvedAddress: document.getElementById("profileResolvedAddress"),
+  profileResolvedBio: document.getElementById("profileResolvedBio"),
   profileCopyAddressBtn: document.getElementById("profileCopyAddressBtn"),
   profileEtherscanLink: document.getElementById("profileEtherscanLink"),
   profileHeroAvatar: document.getElementById("profileHeroAvatar"),
@@ -339,6 +340,10 @@ function renderProfileHeader(address) {
       ui.profileResolvedAddress.textContent = "";
       ui.profileResolvedAddress.hidden = true;
     }
+    if (ui.profileResolvedBio) {
+      ui.profileResolvedBio.textContent = "";
+      ui.profileResolvedBio.hidden = true;
+    }
     if (ui.profileCopyAddressBtn) {
       ui.profileCopyAddressBtn.hidden = true;
       ui.profileCopyAddressBtn.dataset.copyAddress = "";
@@ -358,6 +363,11 @@ function renderProfileHeader(address) {
   if (ui.profileResolvedAddress) {
     ui.profileResolvedAddress.textContent = "";
     ui.profileResolvedAddress.hidden = true;
+  }
+  if (ui.profileResolvedBio) {
+    const bioText = String(profile.bio || "").trim();
+    ui.profileResolvedBio.textContent = bioText;
+    ui.profileResolvedBio.hidden = !bioText;
   }
   if (ui.profileCopyAddressBtn) {
     ui.profileCopyAddressBtn.hidden = false;

@@ -1372,6 +1372,16 @@ button:disabled {
   margin: 0;
 }
 
+.profile-resolved-bio {
+  margin-top: 0.45rem;
+  font-size: 0.84rem;
+  color: #c9d3f7;
+  line-height: 1.35;
+  word-break: normal;
+  overflow-wrap: anywhere;
+  max-width: 72ch;
+}
+
 .profile-etherscan-link {
   border: 1px solid rgba(138, 146, 178, 0.46);
   border-radius: 999px;

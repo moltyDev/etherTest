@@ -391,16 +391,36 @@ function syncFollowButton() {
   );
   const own = Boolean(viewer && target && viewer.toLowerCase() === target.toLowerCase()) || viewingOwnProfile();
 
-  if (!viewer || !target || own) {
+  if (!target) {
     ui.profileFollowBtn.hidden = true;
     ui.profileFollowBtn.style.display = "none";
     ui.profileFollowBtn.disabled = false;
     ui.profileFollowBtn.textContent = "Follow";
+    ui.profileFollowBtn.dataset.mode = "";
+    return;
+  }
+
+  if (viewer && own) {
+    ui.profileFollowBtn.hidden = false;
+    ui.profileFollowBtn.style.display = "inline-flex";
+    ui.profileFollowBtn.disabled = false;
+    ui.profileFollowBtn.textContent = "Edit profile";
+    ui.profileFollowBtn.dataset.mode = "edit";
+    return;
+  }
+
+  if (!viewer) {
+    ui.profileFollowBtn.hidden = true;
+    ui.profileFollowBtn.style.display = "none";
+    ui.profileFollowBtn.disabled = false;
+    ui.profileFollowBtn.textContent = "Follow";
+    ui.profileFollowBtn.dataset.mode = "";
     return;
   }
 
   ui.profileFollowBtn.hidden = false;
   ui.profileFollowBtn.style.display = "inline-flex";
+  ui.profileFollowBtn.dataset.mode = "follow";
   ui.profileFollowBtn.disabled = state.followBusy;
   ui.profileFollowBtn.textContent = state.followBusy
     ? "Saving..."
@@ -1043,6 +1063,15 @@ function setupAddressControls() {
 
 function setupFollowButton() {
   ui.profileFollowBtn?.addEventListener("click", async () => {
+    if (ui.profileFollowBtn?.dataset?.mode === "edit") {
+      try {
+        await openEditProfileModal();
+      } catch (err) {
+        setAlert(ui.alert, parseUiError(err), true);
+      }
+      return;
+    }
+
     try {
       const viewer = connectedAddress();
       const target = normalizeAddress(state.address || "");

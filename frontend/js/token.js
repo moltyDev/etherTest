@@ -1216,8 +1216,10 @@ function renderOverview() {
   const all = state.allSeries;
   if (!all.length) {
     const dexMcapUsd = Number(state.dex?.marketCapUsd || state.dex?.fdvUsd || 0);
+    const poolMcapEth = Number(state.launch?.pool?.marketCapEth || 0);
+    const poolMcapUsd = poolMcapEth > 0 ? ethToUsd(poolMcapEth, state.ethUsd) : 0;
     const dexPriceEth = Number(state.dex?.priceNative || state.launch?.pool?.spotPriceEth || 0);
-    ui.marketCapHeadline.textContent = dexMcapUsd > 0 ? formatCompactUsd(dexMcapUsd) : "-";
+    ui.marketCapHeadline.textContent = dexMcapUsd > 0 ? formatCompactUsd(dexMcapUsd) : poolMcapUsd > 0 ? formatCompactUsd(poolMcapUsd) : "-";
     ui.lastPrice.textContent = dexPriceEth > 0 ? `${dexPriceEth.toLocaleString(undefined, { maximumFractionDigits: 12 })} ETH` : "-";
     ui.marketCapDelta24h.textContent =
       Number.isFinite(Number(state.dex?.priceChange24hPct))
@@ -1228,8 +1230,9 @@ function renderOverview() {
     ui.delta5m.textContent = "-";
     ui.delta1h.textContent = "-";
     ui.delta6h.textContent = "-";
-    ui.athFill.style.width = dexMcapUsd > 0 ? "100%" : "0%";
-    ui.athLabel.textContent = dexMcapUsd > 0 ? formatCompactUsd(dexMcapUsd) : "-";
+    const fallbackMcap = dexMcapUsd > 0 ? dexMcapUsd : poolMcapUsd;
+    ui.athFill.style.width = fallbackMcap > 0 ? "100%" : "0%";
+    ui.athLabel.textContent = fallbackMcap > 0 ? formatCompactUsd(fallbackMcap) : "-";
     renderChart();
     return;
   }
@@ -1312,14 +1315,14 @@ function renderTrades(trades) {
 
   if (!filtered.length) {
     const emptyMsg = hasDexMarket(state.launch)
-      ? "Live swaps are on Uniswap. Trades will populate from indexed on-chain / Gecko feed."
+      ? "No indexed swaps yet. New pools can take ~30-120s to fully index."
       : "No recent trades yet.";
     ui.tradeTable.innerHTML = `<tr><td colspan="6" class="muted">${emptyMsg}</td></tr>`;
     return;
   }
 
   const txBase = state.explorerBaseUrl || "";
-  for (const trade of filtered.slice(0, 120)) {
+  for (const trade of filtered.slice(0, 60)) {
     const tr = document.createElement("tr");
     const txHref = txBase ? `${txBase}/tx/${trade.txHash}` : "#";
     const account = trade.account ? shortAddress(trade.account) : "unknown";

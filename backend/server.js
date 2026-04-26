@@ -73,7 +73,9 @@ const MAX_LAUNCH_READ_CONCURRENCY = 8;
 const MAX_BALANCE_READ_CONCURRENCY = 10;
 const MAX_SOCIAL_POOL_CONCURRENCY = 3;
 const LOG_LOOKBACK_BLOCKS = Math.max(120, Number(process.env.LOG_LOOKBACK_BLOCKS || 1200));
-const DEX_LOG_LOOKBACK_BLOCKS = Math.max(60, Number(process.env.DEX_LOG_LOOKBACK_BLOCKS || 2500));
+const DEX_LOG_LOOKBACK_BLOCKS = Math.max(40, Number(process.env.DEX_LOG_LOOKBACK_BLOCKS || 220));
+const TOKEN_TRADES_RESPONSE_LIMIT = Math.max(20, Math.min(200, Number(process.env.TOKEN_TRADES_RESPONSE_LIMIT || 80)));
+const TOKEN_CHART_RESPONSE_LIMIT = Math.max(20, Math.min(240, Number(process.env.TOKEN_CHART_RESPONSE_LIMIT || 120)));
 const DEFAULT_LOG_RANGE = Math.max(5, Number(process.env.DEFAULT_LOG_RANGE || 45000));
 const MIN_LOG_RANGE = Math.max(1, Number(process.env.MIN_LOG_RANGE || 5));
 const CREATOR_CLAIM_LOOKBACK_BLOCKS = Math.max(
@@ -1087,9 +1089,35 @@ function parseUnixTimestamp(input) {
   return 0;
 }
 
+function expandScientificNumber(raw) {
+  const text = String(raw || "").trim();
+  const match = text.match(/^([+-]?)(\d+)(?:\.(\d+))?[eE]([+-]?\d+)$/);
+  if (!match) return text;
+  const sign = match[1] || "";
+  const intPart = match[2] || "0";
+  const fracPart = match[3] || "";
+  const exponent = Number(match[4] || "0");
+  if (!Number.isFinite(exponent)) return text;
+
+  const digits = `${intPart}${fracPart}`.replace(/^0+/, "") || "0";
+  if (digits === "0") return "0";
+
+  const decimalIndex = intPart.length + exponent;
+  if (decimalIndex <= 0) {
+    return `${sign}0.${"0".repeat(Math.abs(decimalIndex))}${digits}`;
+  }
+  if (decimalIndex >= digits.length) {
+    return `${sign}${digits}${"0".repeat(decimalIndex - digits.length)}`;
+  }
+  return `${sign}${digits.slice(0, decimalIndex)}.${digits.slice(decimalIndex)}`;
+}
+
 function parseAmountToWei(amount, decimals = 18) {
-  const raw = String(amount ?? "").trim();
+  let raw = String(amount ?? "").trim();
   if (!raw) return 0n;
+  if (/[eE]/.test(raw)) {
+    raw = expandScientificNumber(raw);
+  }
   try {
     return ethers.parseUnits(raw, decimals);
   } catch {
@@ -1168,8 +1196,9 @@ async function readGeckoPoolTrades(chainId, pairAddress, tokenAddress, wethAddre
 
     for (const row of rows) {
       const attr = row?.attributes || {};
-      const side = String(attr.kind || attr.side || "").toLowerCase();
-      if (side !== "buy" && side !== "sell") continue;
+      const sideHint = String(attr.kind || attr.side || "").toLowerCase();
+      const side = sideHint.includes("buy") ? "buy" : sideHint.includes("sell") ? "sell" : "";
+      if (!side) continue;
 
       const fromTokenAddress = normalizeAddress(attr.from_token_address || attr.from_address || "");
       const toTokenAddress = normalizeAddress(attr.to_token_address || attr.to_address || "");
@@ -1226,7 +1255,7 @@ async function readGeckoPoolTrades(chainId, pairAddress, tokenAddress, wethAddre
       return b.blockNumber - a.blockNumber;
     });
 
-    const sliced = mapped.slice(0, 300);
+    const sliced = mapped.slice(0, TOKEN_TRADES_RESPONSE_LIMIT);
     setCachedValue(geckoTradesCache, cacheKey, sliced, GECKO_TRADES_CACHE_TTL_MS);
     return sliced;
   } catch {
@@ -1676,7 +1705,7 @@ async function readPairRecentTrades(provider, pairAddress, launchTokenAddress, w
   const bounded = merged.slice(0, 600);
   pairTradesCache.set(cacheKey, { lastBlock: latestBlock, trades: bounded });
 
-  const sliced = bounded.slice(0, Math.max(1, limit));
+  const sliced = bounded.slice(0, Math.max(1, Math.min(limit, TOKEN_TRADES_RESPONSE_LIMIT)));
   const chart = [...sliced]
     .sort((a, b) => Number(a.timestamp || 0) - Number(b.timestamp || 0))
     .map((t) => ({ t: Number(t.timestamp || 0) * 1000, p: Number(t.priceEth || 0), side: t.side }))
@@ -2120,23 +2149,31 @@ app.get("/api/token/:token", async (req, res) => {
       const useOnchainPairTrades = String(process.env.USE_ONCHAIN_PAIR_TRADES || "1") !== "0";
       const useOnchainTopHolders = String(process.env.USE_ONCHAIN_TOP_HOLDERS || "0") === "1";
 
-      const [localTradesRes, pairTradesRes, topHoldersRes, geckoRes, geckoTradesRes] = await Promise.allSettled([
-        useOnchainPoolTrades && !pool.graduated
-          ? readRecentTrades(ctx.provider, launch.pool, 300)
-          : Promise.resolve({ trades: [], chart: [] }),
-        useOnchainPairTrades
-          ? readPairRecentTrades(ctx.provider, effectivePair, launch.token, pool.dexWethAddress, 300)
-          : Promise.resolve({ trades: [], chart: [] }),
+      const [topHoldersRes, geckoRes, geckoTradesRes] = await Promise.allSettled([
         useOnchainTopHolders && !lite ? readTopHolders(ctx.provider, launch, 25) : Promise.resolve(null),
         readGeckoPoolStatus(ctx.chainId, effectivePair),
         readGeckoPoolTrades(ctx.chainId, effectivePair, launch.token, pool.dexWethAddress)
       ]);
 
-      const localTradesPayload = localTradesRes.status === "fulfilled" ? localTradesRes.value : { trades: [], chart: [] };
-      const pairTradesPayload = pairTradesRes.status === "fulfilled" ? pairTradesRes.value : { trades: [], chart: [] };
       const topHolders = topHoldersRes.status === "fulfilled" ? topHoldersRes.value : null;
       const gecko = geckoRes.status === "fulfilled" ? geckoRes.value : null;
       const geckoTrades = geckoTradesRes.status === "fulfilled" ? geckoTradesRes.value : [];
+
+      let localTradesPayload = { trades: [], chart: [] };
+      let pairTradesPayload = { trades: [], chart: [] };
+      const shouldReadPoolTrades = useOnchainPoolTrades && !pool.graduated && (!Array.isArray(geckoTrades) || !geckoTrades.length);
+      const shouldReadPairTrades = useOnchainPairTrades && (!Array.isArray(geckoTrades) || geckoTrades.length < 3);
+
+      if (shouldReadPoolTrades || shouldReadPairTrades) {
+        const [localTradesRes, pairTradesRes] = await Promise.allSettled([
+          shouldReadPoolTrades ? readRecentTrades(ctx.provider, launch.pool, TOKEN_TRADES_RESPONSE_LIMIT) : Promise.resolve({ trades: [], chart: [] }),
+          shouldReadPairTrades
+            ? readPairRecentTrades(ctx.provider, effectivePair, launch.token, pool.dexWethAddress, TOKEN_TRADES_RESPONSE_LIMIT)
+            : Promise.resolve({ trades: [], chart: [] })
+        ]);
+        localTradesPayload = localTradesRes.status === "fulfilled" ? localTradesRes.value : { trades: [], chart: [] };
+        pairTradesPayload = pairTradesRes.status === "fulfilled" ? pairTradesRes.value : { trades: [], chart: [] };
+      }
 
       let trades = [...(localTradesPayload.trades || []), ...(pairTradesPayload.trades || [])];
       let chart = localTradesPayload.chart?.length ? localTradesPayload.chart : pairTradesPayload.chart || [];
@@ -2159,7 +2196,7 @@ app.get("/api/token/:token", async (req, res) => {
           merged.push(row);
         }
         merged.sort((a, b) => Number(b.timestamp || 0) - Number(a.timestamp || 0));
-        trades = merged.slice(0, 300);
+        trades = merged.slice(0, TOKEN_TRADES_RESPONSE_LIMIT);
 
         if (!Array.isArray(chart) || !chart.length) {
           chart = [...trades]
@@ -2170,6 +2207,30 @@ app.get("/api/token/:token", async (req, res) => {
               side: row.side
             }))
             .filter((row) => Number.isFinite(row.t) && Number.isFinite(row.p) && row.p > 0);
+        }
+      }
+
+      if ((Number(pool?.spotPriceEth || 0) <= 0 || Number(pool?.marketCapEth || 0) <= 0) && Number(dex?.priceNative || 0) > 0) {
+        const dexPriceWei = parseAmountToWei(String(dex.priceNative || "0"), 18);
+        if (dexPriceWei > 0n) {
+          const circulating = BigInt(pool.circulatingSupply || "0");
+          const totalSupply = BigInt(launch.totalSupply || "0");
+          const marketCapWei = circulating > 0n ? (dexPriceWei * circulating) / 10n ** 18n : 0n;
+          const fdvWei = totalSupply > 0n ? (dexPriceWei * totalSupply) / 10n ** 18n : 0n;
+          pool.effectiveSpotPriceWei = dexPriceWei.toString();
+          pool.spotPriceEth = toFloat(dexPriceWei, 18, 18);
+          pool.priceSource = "dex";
+          if (marketCapWei > 0n) {
+            pool.marketCapWei = marketCapWei.toString();
+            pool.marketCapEth = toFloat(marketCapWei);
+          }
+          if (fdvWei > 0n) {
+            pool.fdvWei = fdvWei.toString();
+            pool.fdvEth = toFloat(fdvWei);
+          }
+          if (effectivePair !== ethers.ZeroAddress) {
+            pool.graduated = true;
+          }
         }
       }
 
@@ -2195,7 +2256,7 @@ app.get("/api/token/:token", async (req, res) => {
           feeSnapshot
         },
         trades,
-        chart,
+        chart: Array.isArray(chart) ? chart.slice(-TOKEN_CHART_RESPONSE_LIMIT) : [],
         topHolders: Array.isArray(topHolders) ? topHolders : null,
         gecko,
         dex

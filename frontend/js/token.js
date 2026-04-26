@@ -1166,12 +1166,8 @@ function ensureChart() {
 
 function renderChart() {
   if (hasDexMarket(state.launch)) {
-    const geckoReady = Boolean(state.gecko?.indexed);
-    const forceLocal = Date.now() < Number(state.forceLocalChartUntil || 0);
-    if (geckoReady && !forceLocal) {
-      const rendered = renderGeckoChart(state.launch);
-      if (rendered) return;
-    }
+    const rendered = renderGeckoChart(state.launch);
+    if (rendered) return;
   }
 
   if (ui.priceChart && ui.priceChart.querySelector("iframe")) {
@@ -1202,8 +1198,8 @@ function renderChart() {
   ui.chartLow.textContent = latest ? priceFormat(latest.low) : "-";
   ui.chartClose.textContent = latest ? priceFormat(latest.close) : "-";
   ui.chartVolume.textContent = latestVol ? volumeFormat(latestVol.value) : "-";
-  if (hasDexMarket(state.launch) && (state.gecko?.indexed === false || Date.now() < Number(state.forceLocalChartUntil || 0))) {
-    ui.chartPairLabel.textContent = `${state.launch?.symbol || "TOKEN"}/ETH - Local chart (Gecko index pending)`;
+  if (hasDexMarket(state.launch)) {
+    ui.chartPairLabel.textContent = `${state.launch?.symbol || "TOKEN"}/ETH - GeckoTerminal`;
   }
 }
 

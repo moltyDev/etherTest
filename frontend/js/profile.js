@@ -380,9 +380,16 @@ function renderProfileHeader(address) {
 
 function syncFollowButton() {
   if (!ui.profileFollowBtn) return;
-  const viewer = connectedAddress();
-  const target = normalizeAddress(state.address || "");
-  const own = viewingOwnProfile();
+  const ws = walletState();
+  const viewer = normalizeAddress(ws?.address || connectedAddress() || "");
+  const target = normalizeAddress(
+    ui.profileCopyAddressBtn?.dataset?.copyAddress ||
+      state.payload?.profile?.address ||
+      state.payload?.address ||
+      state.address ||
+      getAddressFromUrl()
+  );
+  const own = Boolean(viewer && target && viewer.toLowerCase() === target.toLowerCase()) || viewingOwnProfile();
 
   if (!viewer || !target || own) {
     ui.profileFollowBtn.hidden = true;

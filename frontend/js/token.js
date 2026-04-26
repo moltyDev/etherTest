@@ -318,7 +318,15 @@ function mergeTradesWithOptimistic(apiTrades = []) {
   const seen = new Set();
   const out = [];
   for (const row of combined) {
-    const key = `${String(row.txHash || "")}:${String(row.side || "")}`;
+    const key = [
+      String(row.txHash || ""),
+      String(row.side || ""),
+      Number(row.timestamp || 0),
+      Number(row.blockNumber || 0),
+      Number(row.logIndex || -1),
+      String(row.ethAmountWei || ""),
+      String(row.tokenAmountWei || "")
+    ].join(":");
     if (seen.has(key)) continue;
     seen.add(key);
     out.push(row);
@@ -344,8 +352,26 @@ async function getPairMeta() {
 
 function pushOptimisticTrade(trade) {
   if (!trade || !trade.txHash) return;
+  const tradeKey = [
+    String(trade.txHash || ""),
+    String(trade.side || ""),
+    Number(trade.timestamp || 0),
+    Number(trade.blockNumber || 0),
+    Number(trade.logIndex || -1),
+    String(trade.ethAmountWei || ""),
+    String(trade.tokenAmountWei || "")
+  ].join(":");
   const exists = state.optimisticTrades.some(
-    (row) => String(row.txHash || "").toLowerCase() === String(trade.txHash || "").toLowerCase() && row.side === trade.side
+    (row) =>
+      [
+        String(row.txHash || ""),
+        String(row.side || ""),
+        Number(row.timestamp || 0),
+        Number(row.blockNumber || 0),
+        Number(row.logIndex || -1),
+        String(row.ethAmountWei || ""),
+        String(row.tokenAmountWei || "")
+      ].join(":") === tradeKey
   );
   if (!exists) {
     state.optimisticTrades.unshift(trade);

@@ -72,7 +72,7 @@ const MAX_LAUNCH_READ_CONCURRENCY = 8;
 const MAX_BALANCE_READ_CONCURRENCY = 10;
 const MAX_SOCIAL_POOL_CONCURRENCY = 3;
 const LOG_LOOKBACK_BLOCKS = Math.max(120, Number(process.env.LOG_LOOKBACK_BLOCKS || 1200));
-const DEX_LOG_LOOKBACK_BLOCKS = Math.max(60, Number(process.env.DEX_LOG_LOOKBACK_BLOCKS || 300));
+const DEX_LOG_LOOKBACK_BLOCKS = Math.max(60, Number(process.env.DEX_LOG_LOOKBACK_BLOCKS || 2500));
 const DEFAULT_LOG_RANGE = Math.max(5, Number(process.env.DEFAULT_LOG_RANGE || 45000));
 const MIN_LOG_RANGE = Math.max(1, Number(process.env.MIN_LOG_RANGE || 5));
 const CREATOR_CLAIM_LOOKBACK_BLOCKS = Math.max(
@@ -1168,6 +1168,7 @@ async function readGeckoPoolTrades(chainId, pairAddress, tokenAddress, wethAddre
         account: account || "",
         txHash,
         blockNumber: Number(attr.block_number || 0),
+        logIndex: Number(attr.log_index || -1),
         timestamp,
         ethAmountWei: ethAmountWei.toString(),
         tokenAmountWei: tokenAmountWei.toString(),
@@ -1594,6 +1595,7 @@ async function readPairRecentTrades(provider, pairAddress, launchTokenAddress, w
       account: account || "",
       txHash: ev.transactionHash,
       blockNumber: ev.blockNumber,
+      logIndex: Number(ev.logIndex ?? -1),
       timestamp,
       ethAmountWei: ethAmountWei.toString(),
       tokenAmountWei: tokenAmountWei.toString(),
@@ -1611,7 +1613,15 @@ async function readPairRecentTrades(provider, pairAddress, launchTokenAddress, w
   const merged = [];
   const seen = new Set();
   for (const row of [...trades, ...(cached?.trades || [])]) {
-    const key = `${String(row.txHash || "")}:${String(row.side || "")}:${Number(row.timestamp || 0)}`;
+    const key = [
+      String(row.txHash || ""),
+      String(row.side || ""),
+      Number(row.timestamp || 0),
+      Number(row.blockNumber || 0),
+      Number(row.logIndex || -1),
+      String(row.ethAmountWei || ""),
+      String(row.tokenAmountWei || "")
+    ].join(":");
     if (seen.has(key)) continue;
     seen.add(key);
     merged.push(row);
@@ -2061,19 +2071,20 @@ app.get("/api/token/:token", async (req, res) => {
           ? { ...poolBase, migratedPair: effectivePair, graduated: true, priceSource: "dex" }
           : poolBase;
 
-      // Token page should stay API/indexer-first (Gecko + DexScreener).
-      // On free RPC tiers, eth_getLogs range limits can break UI rendering.
-      // Keep this disabled for the token payload path.
-      const useOnchainLogs = false;
+      // Keep token page indexer-first, but allow on-chain pair trades to improve
+      // freshness and avoid missing multiple recent swaps.
+      const useOnchainPoolTrades = String(process.env.USE_ONCHAIN_POOL_TRADES || "0") === "1";
+      const useOnchainPairTrades = String(process.env.USE_ONCHAIN_PAIR_TRADES || "1") !== "0";
+      const useOnchainTopHolders = String(process.env.USE_ONCHAIN_TOP_HOLDERS || "0") === "1";
 
       const [localTradesRes, pairTradesRes, topHoldersRes, geckoRes, geckoTradesRes] = await Promise.allSettled([
-        useOnchainLogs && !pool.graduated
+        useOnchainPoolTrades && !pool.graduated
           ? readRecentTrades(ctx.provider, launch.pool, 300)
           : Promise.resolve({ trades: [], chart: [] }),
-        useOnchainLogs
+        useOnchainPairTrades
           ? readPairRecentTrades(ctx.provider, effectivePair, launch.token, pool.dexWethAddress, 300)
           : Promise.resolve({ trades: [], chart: [] }),
-        useOnchainLogs && !lite ? readTopHolders(ctx.provider, launch, 25) : Promise.resolve(null),
+        useOnchainTopHolders && !lite ? readTopHolders(ctx.provider, launch, 25) : Promise.resolve(null),
         readGeckoPoolStatus(ctx.chainId, effectivePair),
         readGeckoPoolTrades(ctx.chainId, effectivePair, launch.token, pool.dexWethAddress)
       ]);
@@ -2091,7 +2102,15 @@ app.get("/api/token/:token", async (req, res) => {
         const seen = new Set();
         const merged = [];
         for (const row of [...geckoTrades, ...trades]) {
-          const key = `${String(row.txHash || "")}:${String(row.side || "")}:${Number(row.timestamp || 0)}`;
+          const key = [
+            String(row.txHash || ""),
+            String(row.side || ""),
+            Number(row.timestamp || 0),
+            Number(row.blockNumber || 0),
+            Number(row.logIndex || -1),
+            String(row.ethAmountWei || ""),
+            String(row.tokenAmountWei || "")
+          ].join(":");
           if (seen.has(key)) continue;
           seen.add(key);
           merged.push(row);

@@ -62,7 +62,6 @@ const ui = {
   editProfileBtn: document.getElementById("editProfileBtn"),
   menuLogoutBtn: document.getElementById("menuLogoutBtn"),
   profileAddressInput: document.getElementById("profileAddressInput"),
-  profileLoadBtn: document.getElementById("profileLoadBtn"),
   profileResolvedName: document.getElementById("profileResolvedName"),
   profileResolvedAddress: document.getElementById("profileResolvedAddress"),
   profileResolvedBio: document.getElementById("profileResolvedBio"),
@@ -1050,15 +1049,6 @@ function setupProfileMenu() {
 }
 
 function setupAddressControls() {
-  ui.profileLoadBtn?.addEventListener("click", async () => {
-    try {
-      await loadProfile(ui.profileAddressInput.value);
-      setAlert(ui.alert, "Profile loaded");
-    } catch (err) {
-      setAlert(ui.alert, parseUiError(err), true);
-    }
-  });
-
   ui.profileAddressInput?.addEventListener("keydown", async (event) => {
     if (event.key !== "Enter") return;
     event.preventDefault();

@@ -27,6 +27,7 @@ const SUPABASE_FOLLOW_TABLE = String(process.env.SUPABASE_FOLLOW_TABLE || "user_
 const SUPABASE_SCHEMA = String(process.env.SUPABASE_SCHEMA || "public").trim();
 const PROFILE_IMAGE_URI_MAX_LENGTH = 2 * 1024 * 1024;
 const STRICT_PROFILE_STORE = String(process.env.STRICT_PROFILE_STORE || (IS_VERCEL_RUNTIME ? "1" : "0")) === "1";
+const STRICT_SOCIAL_STORE = String(process.env.STRICT_SOCIAL_STORE || (STRICT_PROFILE_STORE ? "1" : "0")) === "1";
 // Vercel runtime filesystem is ephemeral/read-only for project paths. Force inline mode there.
 const USE_DISK_UPLOADS = !IS_VERCEL_RUNTIME && UPLOAD_MODE !== "inline";
 
@@ -801,6 +802,24 @@ function isSupabaseFollowConfigured() {
   return Boolean(isSupabaseConfigured() && SUPABASE_FOLLOW_TABLE);
 }
 
+function allowFileFollowFallback() {
+  // Local/dev can fall back to file store. Production serverless should be strict.
+  if (STRICT_SOCIAL_STORE) return false;
+  return true;
+}
+
+function assertFollowStoreConfigured() {
+  if (!STRICT_SOCIAL_STORE) return;
+  if (!isSupabaseConfigured()) {
+    throw new Error(
+      "Follow store requires SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY in strict mode"
+    );
+  }
+  if (!SUPABASE_FOLLOW_TABLE) {
+    throw new Error("Follow store requires SUPABASE_FOLLOW_TABLE in strict mode");
+  }
+}
+
 async function getSupabaseFollowEdgesForAddress(address) {
   const normalized = normalizeAddress(address);
   if (!normalized) {
@@ -900,6 +919,8 @@ async function getPersistedSocialGraph(address) {
     return { followers: [], following: [] };
   }
 
+  assertFollowStoreConfigured();
+
   try {
     if (isSupabaseFollowConfigured()) {
       const edges = await getSupabaseFollowEdgesForAddress(normalized);
@@ -909,9 +930,15 @@ async function getPersistedSocialGraph(address) {
       };
     }
   } catch (error) {
+    if (!allowFileFollowFallback()) {
+      throw new Error(`Supabase follow read failed: ${error?.message || "connection error"}`);
+    }
     console.warn(`Supabase follow read failed: ${error?.message || "connection error"}`);
   }
 
+  if (!allowFileFollowFallback()) {
+    throw new Error("Supabase follow store is unavailable in strict mode");
+  }
   const edges = listFollowEdgesFromStore(normalized);
   return {
     followers: mapFollowRows(edges.followers, "followers"),
@@ -925,6 +952,8 @@ async function getFollowState(viewerAddress, targetAddress) {
   if (!viewer || !target) {
     return { viewer, target, isFollowing: false, followersCount: 0, followingCount: 0 };
   }
+
+  assertFollowStoreConfigured();
 
   try {
     if (isSupabaseFollowConfigured()) {
@@ -942,9 +971,15 @@ async function getFollowState(viewerAddress, targetAddress) {
       };
     }
   } catch (error) {
+    if (!allowFileFollowFallback()) {
+      throw new Error(`Supabase follow state failed: ${error?.message || "connection error"}`);
+    }
     console.warn(`Supabase follow state failed: ${error?.message || "connection error"}`);
   }
 
+  if (!allowFileFollowFallback()) {
+    throw new Error("Supabase follow store is unavailable in strict mode");
+  }
   const targetSocial = listFollowEdgesFromStore(target);
   const viewerSocial = listFollowEdgesFromStore(viewer);
   return {
@@ -964,6 +999,8 @@ async function setFollowState(viewerAddress, targetAddress, follow = true) {
     throw new Error("You cannot follow yourself");
   }
 
+  assertFollowStoreConfigured();
+
   let persisted = false;
   try {
     if (isSupabaseFollowConfigured()) {
@@ -971,10 +1008,16 @@ async function setFollowState(viewerAddress, targetAddress, follow = true) {
       persisted = true;
     }
   } catch (error) {
+    if (!allowFileFollowFallback()) {
+      throw new Error(`Supabase follow write failed: ${error?.message || "connection error"}`);
+    }
     console.warn(`Supabase follow write failed: ${error?.message || "connection error"}`);
   }
 
   if (!persisted) {
+    if (!allowFileFollowFallback()) {
+      throw new Error("Supabase follow store is unavailable in strict mode");
+    }
     setFollowInStore(viewer, target, follow);
   }
 

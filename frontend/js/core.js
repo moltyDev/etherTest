@@ -57,13 +57,16 @@ let providerIdCounter = 0;
 const WALLET_SESSION_KEY = "etherpump.wallet.session.v1";
 const PROFILE_STORAGE_KEY = "etherpump.profile.v1";
 const PROFILE_REMOTE_FRESH_KEY = "etherpump.profile.remotefresh.v1";
+const PROFILE_FOLLOWERS_STORAGE_KEY = "etherpump.profile.followers.v1";
 const ETH_USD_CACHE_KEY = "etherpump.ethusd.v1";
 const CHAIN_PREFERENCE_KEY = "etherpump.chain.preferred.v1";
 const ETH_USD_FALLBACK = 3000;
 const ETH_USD_CACHE_TTL_MS = 5 * 60 * 1000;
 const PROFILE_REMOTE_TTL_MS = 10 * 1000;
+const PROFILE_FOLLOWERS_TTL_MS = 30 * 1000;
 const PROFILE_IMAGE_URI_MAX_LENGTH = 2 * 1024 * 1024;
 const profileInFlight = new Map();
+const profileFollowersInFlight = new Map();
 
 export function getPreferredChainId() {
   try {
@@ -614,6 +617,60 @@ function saveProfileFreshStore(store) {
   }
 }
 
+function loadProfileFollowersStore() {
+  try {
+    const raw = localStorage.getItem(PROFILE_FOLLOWERS_STORAGE_KEY);
+    const parsed = JSON.parse(raw || "{}");
+    if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+      return parsed;
+    }
+  } catch {
+    // ignore corrupt follower count cache
+  }
+  return {};
+}
+
+function saveProfileFollowersStore(store) {
+  try {
+    localStorage.setItem(PROFILE_FOLLOWERS_STORAGE_KEY, JSON.stringify(store));
+  } catch {
+    // ignore storage write failures
+  }
+}
+
+function cacheFollowerCount(address, count) {
+  const normalized = normalizeProfileAddress(address);
+  if (!normalized) return;
+  const numeric = Number(count);
+  if (!Number.isFinite(numeric) || numeric < 0) return;
+  const store = loadProfileFollowersStore();
+  store[normalized.toLowerCase()] = { count: Math.floor(numeric), ts: Date.now() };
+  saveProfileFollowersStore(store);
+}
+
+function readFollowerCountEntry(address) {
+  const normalized = normalizeProfileAddress(address);
+  if (!normalized) return null;
+  const store = loadProfileFollowersStore();
+  const row = store[normalized.toLowerCase()];
+  if (!row || typeof row !== "object") return null;
+  const count = Number(row.count);
+  const ts = Number(row.ts);
+  if (!Number.isFinite(count) || count < 0 || !Number.isFinite(ts) || ts <= 0) return null;
+  return { count: Math.floor(count), ts };
+}
+
+function isFollowerCountFresh(address, ttlMs = PROFILE_FOLLOWERS_TTL_MS) {
+  const row = readFollowerCountEntry(address);
+  if (!row) return false;
+  return Date.now() - row.ts < ttlMs;
+}
+
+export function loadCachedFollowerCount(address) {
+  const row = readFollowerCountEntry(address);
+  return row ? row.count : null;
+}
+
 function normalizeProfileAddress(address) {
   try {
     return ethers.getAddress(String(address || "").trim());
@@ -716,6 +773,39 @@ export function loadUserProfile(address) {
   const key = normalized.toLowerCase();
   const row = store[key] || {};
   return normalizeProfileValue(normalized, row);
+}
+
+export async function hydrateFollowerCount(address, options = {}) {
+  const normalized = normalizeProfileAddress(address);
+  if (!normalized) return 0;
+
+  const force = Boolean(options?.force);
+  if (!force && isFollowerCountFresh(normalized)) {
+    return loadCachedFollowerCount(normalized) ?? 0;
+  }
+
+  const key = normalized.toLowerCase();
+  if (profileFollowersInFlight.has(key)) {
+    return profileFollowersInFlight.get(key);
+  }
+
+  const task = (async () => {
+    try {
+      const payload = await profileApiGet(
+        `/api/follow/state?viewer=${encodeURIComponent(normalized)}&target=${encodeURIComponent(normalized)}`
+      );
+      const count = Number(payload?.followersCount || 0);
+      cacheFollowerCount(normalized, count);
+      return loadCachedFollowerCount(normalized) ?? 0;
+    } catch {
+      return loadCachedFollowerCount(normalized) ?? 0;
+    } finally {
+      profileFollowersInFlight.delete(key);
+    }
+  })();
+
+  profileFollowersInFlight.set(key, task);
+  return task;
 }
 
 export async function hydrateUserProfile(address, options = {}) {

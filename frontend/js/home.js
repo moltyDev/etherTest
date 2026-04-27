@@ -3,8 +3,10 @@ import {
   defaultUsername,
   fetchEthUsdPrice,
   formatCompactUsd,
+  hydrateFollowerCount,
   hydrateUserProfile,
   hydrateUserProfiles,
+  loadCachedFollowerCount,
   loadUserProfile,
   parseUiError,
   resolveCoinImage,
@@ -86,6 +88,11 @@ const state = {
 
 let walletHub = null;
 let walletControls = null;
+
+function followerMetaText(count) {
+  const numeric = Math.max(0, Number(count || 0));
+  return `${numeric} ${numeric === 1 ? "follower" : "followers"}`;
+}
 
 function loadWatchlist() {
   try {
@@ -478,7 +485,14 @@ function updateProfileIdentity() {
 
   if (ui.profileMenuName) ui.profileMenuName.textContent = name;
   if (ui.profileMenuNameLarge) ui.profileMenuNameLarge.textContent = name;
-  if (ui.profileMenuMeta) ui.profileMenuMeta.textContent = connected ? "0 followers" : "Not connected";
+  if (ui.profileMenuMeta) {
+    if (connected) {
+      const cachedFollowers = loadCachedFollowerCount(ws.address);
+      ui.profileMenuMeta.textContent = followerMetaText(cachedFollowers ?? 0);
+    } else {
+      ui.profileMenuMeta.textContent = "Not connected";
+    }
+  }
   if (ui.signInBtn) ui.signInBtn.style.display = connected ? "none" : "inline-flex";
   if (ui.walletHubBtn) ui.walletHubBtn.style.display = connected ? "inline-flex" : "none";
   if (ui.profileMenuBtn) ui.profileMenuBtn.style.display = connected ? "inline-flex" : "none";
@@ -511,6 +525,15 @@ function updateProfileIdentity() {
 
   if (connected) {
     const currentAddress = String(ws.address || "");
+    hydrateFollowerCount(currentAddress).then((followersCount) => {
+      const nextWs = walletState();
+      if (String(nextWs.address || "").toLowerCase() !== currentAddress.toLowerCase()) return;
+      if (ui.profileMenuMeta) {
+        ui.profileMenuMeta.textContent = followerMetaText(followersCount);
+      }
+    }).catch(() => {
+      // ignore follower-count hydration failures
+    });
     hydrateUserProfile(currentAddress).then(() => {
       const nextWs = walletState();
       if (String(nextWs.address || "").toLowerCase() !== currentAddress.toLowerCase()) return;

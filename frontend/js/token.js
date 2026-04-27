@@ -8,8 +8,10 @@ import {
   formatCompactUsd,
   formatEth,
   formatToken,
+  hydrateFollowerCount,
   hydrateUserProfile,
   hydrateUserProfiles,
+  loadCachedFollowerCount,
   loadUserProfile,
   makeRouterContract,
   makeTokenContract,
@@ -189,6 +191,11 @@ const V2_PAIR_SWAP_EVENT_ABI = [
 ];
 const V2_PAIR_META_ABI = ["function token0() view returns (address)", "function token1() view returns (address)"];
 const CLAIM_MIN_USD = 8;
+
+function followerMetaText(count) {
+  const numeric = Math.max(0, Number(count || 0));
+  return `${numeric} ${numeric === 1 ? "follower" : "followers"}`;
+}
 
 const COPY_PILL_ICON = `
   <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -637,7 +644,14 @@ function updateProfileIdentity() {
 
   if (ui.profileMenuName) ui.profileMenuName.textContent = username;
   if (ui.profileMenuNameLarge) ui.profileMenuNameLarge.textContent = username;
-  if (ui.profileMenuMeta) ui.profileMenuMeta.textContent = connected ? "0 followers" : "Not connected";
+  if (ui.profileMenuMeta) {
+    if (connected) {
+      const cachedFollowers = loadCachedFollowerCount(ws.address);
+      ui.profileMenuMeta.textContent = followerMetaText(cachedFollowers ?? 0);
+    } else {
+      ui.profileMenuMeta.textContent = "Not connected";
+    }
+  }
   if (ui.signInBtn) ui.signInBtn.style.display = connected ? "none" : "inline-flex";
   if (ui.walletHubBtn) ui.walletHubBtn.style.display = connected ? "inline-flex" : "none";
   if (ui.profileMenuBtn) ui.profileMenuBtn.style.display = connected ? "inline-flex" : "none";
@@ -669,6 +683,15 @@ function updateProfileIdentity() {
 
   if (connected) {
     const currentAddress = String(ws.address || "");
+    hydrateFollowerCount(currentAddress).then((followersCount) => {
+      const next = walletState();
+      if (String(next.address || "").toLowerCase() !== currentAddress.toLowerCase()) return;
+      if (ui.profileMenuMeta) {
+        ui.profileMenuMeta.textContent = followerMetaText(followersCount);
+      }
+    }).catch(() => {
+      // ignore follower-count hydration failures
+    });
     hydrateUserProfile(currentAddress).then(() => {
       const next = walletState();
       if (String(next.address || "").toLowerCase() !== currentAddress.toLowerCase()) return;

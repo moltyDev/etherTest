@@ -180,6 +180,14 @@ const DEXSCREENER_NETWORK_BY_CHAIN = {
   1: "ethereum",
   11155111: "sepolia"
 };
+
+function formatEthDisplay(value) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0 ETH";
+  if (n < 0.000000000001) return `${n.toExponential(4)} ETH`;
+  if (n < 0.000001) return `${n.toLocaleString(undefined, { maximumFractionDigits: 15 })} ETH`;
+  return `${n.toLocaleString(undefined, { maximumFractionDigits: 12 })} ETH`;
+}
 const tradeSyncTimers = {
   buyFromEth: null,
   buyFromToken: null,
@@ -1279,7 +1287,7 @@ function renderOverview() {
     const poolMcapUsd = poolMcapEth > 0 ? ethToUsd(poolMcapEth, state.ethUsd) : 0;
     const dexPriceEth = Number(state.dex?.priceNative || state.launch?.pool?.spotPriceEth || 0);
     ui.marketCapHeadline.textContent = dexMcapUsd > 0 ? formatCompactUsd(dexMcapUsd) : poolMcapUsd > 0 ? formatCompactUsd(poolMcapUsd) : "-";
-    ui.lastPrice.textContent = dexPriceEth > 0 ? `${dexPriceEth.toLocaleString(undefined, { maximumFractionDigits: 12 })} ETH` : "-";
+    ui.lastPrice.textContent = dexPriceEth > 0 ? formatEthDisplay(dexPriceEth) : "-";
     ui.marketCapDelta24h.textContent =
       Number.isFinite(Number(state.dex?.priceChange24hPct))
         ? `${Number(state.dex?.priceChange24hPct || 0) > 0 ? "+" : ""}${Number(state.dex?.priceChange24hPct || 0).toFixed(2)}% 24h`
@@ -1299,7 +1307,7 @@ function renderOverview() {
   const last = all[all.length - 1];
   const lastMcapUsd = ethToUsd(last.mcap, state.ethUsd);
   ui.marketCapHeadline.textContent = formatCompactUsd(lastMcapUsd);
-  ui.lastPrice.textContent = `${Number(last.price || 0).toLocaleString(undefined, { maximumFractionDigits: 12 })} ETH`;
+  ui.lastPrice.textContent = formatEthDisplay(Number(last.price || 0));
 
   const d5 = computeDelta(all, "mcap", RANGE_MS["5m"]);
   const d1h = computeDelta(all, "mcap", RANGE_MS["1h"]);
@@ -1325,7 +1333,10 @@ function renderOverview() {
     const eth = Number(ethers.formatUnits(trade.ethAmountWei || "0", 18));
     return sum + (Number.isFinite(eth) ? eth : 0);
   }, 0);
-  ui.volume24h.textContent = formatCompactUsd(ethToUsd(volume24hEth, state.ethUsd));
+  const tradeVolume24hUsd = ethToUsd(volume24hEth, state.ethUsd);
+  const dexVolume24hUsd = Number(state.dex?.volume24hUsd || 0);
+  const volume24hUsd = tradeVolume24hUsd > 0 ? tradeVolume24hUsd : dexVolume24hUsd;
+  ui.volume24h.textContent = volume24hUsd > 0 ? formatCompactUsd(volume24hUsd) : "$0";
 
   const ath = all.reduce((max, row) => Math.max(max, ethToUsd(row.mcap, state.ethUsd)), 0);
   const fillPct = ath > 0 ? Math.max(0, Math.min(100, (lastMcapUsd / ath) * 100)) : 0;
@@ -2059,7 +2070,7 @@ async function init() {
   await loadTokenPage(false, false);
 
   setInterval(() => {
-    loadTokenPage(false, true).catch(() => {
+    loadTokenPage(true, true).catch(() => {
       // ignore transient poll failures
     });
   }, 2_500);

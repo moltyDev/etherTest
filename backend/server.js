@@ -132,7 +132,13 @@ function isLogRangeLimitError(error) {
   const text = String(
     error?.shortMessage || error?.message || error?.error?.message || error?.info?.error?.message || ""
   ).toLowerCase();
-  return text.includes("eth_getlogs is limited") || text.includes("limited to a 5 range");
+  return (
+    text.includes("eth_getlogs is limited") ||
+    text.includes("limited to a 5 range") ||
+    text.includes("up to a 10 block range") ||
+    text.includes("block range should work") ||
+    text.includes("eth_getlogs requests with up to")
+  );
 }
 
 async function queryFilterAdaptive(pool, filter, fromBlock, toBlock, initialRange = DEFAULT_LOG_RANGE) {
@@ -1146,6 +1152,7 @@ async function readGeckoPoolStatus(chainId, pairAddress) {
   }
 
   let indexed = geckoIndexedSticky.has(key);
+  let snapshot = null;
   try {
     const response = await fetch(urls.apiUrl, {
       method: "GET",
@@ -1153,6 +1160,21 @@ async function readGeckoPoolStatus(chainId, pairAddress) {
       signal: AbortSignal.timeout(2500)
     });
     if (response.ok) {
+      const payload = await response.json();
+      const attr = payload?.data?.attributes || null;
+      if (attr) {
+        snapshot = {
+          priceNative: toNumberSafe(attr.base_token_price_native_currency, 0),
+          priceUsd: toNumberSafe(attr.base_token_price_usd, 0),
+          marketCapUsd: toNumberSafe(attr.market_cap_usd, 0),
+          fdvUsd: toNumberSafe(attr.fdv_usd, 0),
+          liquidityUsd: toNumberSafe(attr.reserve_in_usd, 0),
+          volume24hUsd: toNumberSafe(attr?.volume_usd?.h24, 0),
+          priceChange24hPct: toNumberSafe(attr?.price_change_percentage?.h24, 0),
+          tx24hBuys: toNumberSafe(attr?.transactions?.h24?.buys, 0),
+          tx24hSells: toNumberSafe(attr?.transactions?.h24?.sells, 0)
+        };
+      }
       indexed = true;
       geckoIndexedSticky.add(key);
     }
@@ -1163,6 +1185,7 @@ async function readGeckoPoolStatus(chainId, pairAddress) {
 
   const value = {
     indexed,
+    snapshot,
     ...urls
   };
   setCachedValue(geckoPoolCache, key, value, GECKO_POOL_CACHE_TTL_MS);
@@ -2158,7 +2181,7 @@ app.get("/api/token/:token", async (req, res) => {
 
       const poolBase = await readPoolSnapshot(ctx.provider, launch);
       const feeSnapshot = await readTokenFeeSnapshot(ctx.provider, launch.token);
-      const dex = await readDexScreenerTokenSnapshot(ctx.chainId, launch.token, poolBase.migratedPair);
+      let dex = await readDexScreenerTokenSnapshot(ctx.chainId, launch.token, poolBase.migratedPair);
       const pairFallback = normalizeAddress(dex?.pairAddress || "");
       const effectivePair = normalizeAddress(poolBase.migratedPair) || pairFallback || ethers.ZeroAddress;
       const pool =
@@ -2181,6 +2204,25 @@ app.get("/api/token/:token", async (req, res) => {
       const topHolders = topHoldersRes.status === "fulfilled" ? topHoldersRes.value : null;
       const gecko = geckoRes.status === "fulfilled" ? geckoRes.value : null;
       const geckoTrades = geckoTradesRes.status === "fulfilled" ? geckoTradesRes.value : [];
+      if (!dex && gecko?.snapshot) {
+        dex = {
+          chainId: dexscreenerChainForChain(ctx.chainId),
+          dexId: "uniswap_v2",
+          pairAddress: normalizeAddress(effectivePair || "") || "",
+          pairUrl: gecko.poolUrl || "",
+          baseSymbol: String(launch.symbol || ""),
+          quoteSymbol: "WETH",
+          priceNative: toNumberSafe(gecko.snapshot.priceNative, 0),
+          priceUsd: toNumberSafe(gecko.snapshot.priceUsd, 0),
+          marketCapUsd: toNumberSafe(gecko.snapshot.marketCapUsd, 0),
+          fdvUsd: toNumberSafe(gecko.snapshot.fdvUsd, 0),
+          liquidityUsd: toNumberSafe(gecko.snapshot.liquidityUsd, 0),
+          volume24hUsd: toNumberSafe(gecko.snapshot.volume24hUsd, 0),
+          priceChange24hPct: toNumberSafe(gecko.snapshot.priceChange24hPct, 0),
+          pairCreatedAt: Number(launch.createdAt || 0) * 1000,
+          raw: { source: "gecko_snapshot" }
+        };
+      }
 
       let localTradesPayload = { trades: [], chart: [] };
       let pairTradesPayload = { trades: [], chart: [] };

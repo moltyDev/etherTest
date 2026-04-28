@@ -1572,11 +1572,11 @@ async function readPairRecentTrades(provider, pairAddress, launchTokenAddress, w
   const pair = normalizeAddress(pairAddress || "");
   const token = normalizeAddress(launchTokenAddress || "");
   const weth = normalizeAddress(wethAddress || "");
-  if (!pair || !token || !weth) {
+  if (!pair || !token) {
     return { trades: [], chart: [] };
   }
 
-  const cacheKey = `${pair.toLowerCase()}:${token.toLowerCase()}:${weth.toLowerCase()}`;
+  const cacheKey = `${pair.toLowerCase()}:${token.toLowerCase()}:${weth.toLowerCase() || "unknown"}`;
   const contract = new ethers.Contract(pair, V2_PAIR_ABI, provider);
   const latestBlock = await provider.getBlockNumber();
   const cached = pairTradesCache.get(cacheKey);
@@ -1618,7 +1618,7 @@ async function readPairRecentTrades(provider, pairAddress, launchTokenAddress, w
   const wethIs0 = token0Lower === wethLower;
   const wethIs1 = token1Lower === wethLower;
 
-  if (!(tokenIs0 || tokenIs1) || !(wethIs0 || wethIs1)) {
+  if (!(tokenIs0 || tokenIs1)) {
     return { trades: [], chart: [] };
   }
 
@@ -1640,30 +1640,30 @@ async function readPairRecentTrades(provider, pairAddress, launchTokenAddress, w
 
     const tokenIn = tokenIs0 ? amount0In : amount1In;
     const tokenOut = tokenIs0 ? amount0Out : amount1Out;
-    const wethIn = wethIs0 ? amount0In : amount1In;
-    const wethOut = wethIs0 ? amount0Out : amount1Out;
+    const quoteIn = tokenIs0 ? amount1In : amount0In;
+    const quoteOut = tokenIs0 ? amount1Out : amount0Out;
 
     let side = "";
-    let ethAmountWei = 0n;
+    let quoteAmountWei = 0n;
     let tokenAmountWei = 0n;
 
-    if (wethIn > 0n && tokenOut > 0n) {
+    if (quoteIn > 0n && tokenOut > 0n) {
       side = "buy";
-      ethAmountWei = wethIn;
+      quoteAmountWei = quoteIn;
       tokenAmountWei = tokenOut;
-    } else if (tokenIn > 0n && wethOut > 0n) {
+    } else if (tokenIn > 0n && quoteOut > 0n) {
       side = "sell";
-      ethAmountWei = wethOut;
+      quoteAmountWei = quoteOut;
       tokenAmountWei = tokenIn;
     } else {
       continue;
     }
 
-    if (ethAmountWei <= 0n || tokenAmountWei <= 0n) continue;
+    if (quoteAmountWei <= 0n || tokenAmountWei <= 0n) continue;
 
     const timestamp = await blockTs(ev.blockNumber);
     const account = normalizeAddress(ev.args?.to || ev.args?.sender || "");
-    const priceWei = (ethAmountWei * 10n ** 18n) / tokenAmountWei;
+    const priceWei = (quoteAmountWei * 10n ** 18n) / tokenAmountWei;
 
     trades.push({
       side,
@@ -1672,7 +1672,7 @@ async function readPairRecentTrades(provider, pairAddress, launchTokenAddress, w
       blockNumber: ev.blockNumber,
       logIndex: Number(ev.logIndex ?? -1),
       timestamp,
-      ethAmountWei: ethAmountWei.toString(),
+      ethAmountWei: quoteAmountWei.toString(),
       tokenAmountWei: tokenAmountWei.toString(),
       priceWei: priceWei.toString(),
       priceEth: toFloat(priceWei, 18, 18),
@@ -2167,7 +2167,7 @@ app.get("/api/token/:token", async (req, res) => {
       const shouldReadPoolTrades = useOnchainPoolTrades && !pool.graduated && (!Array.isArray(geckoTrades) || !geckoTrades.length);
       // Always sample recent pair swaps and merge with indexer data.
       // This keeps trade history visible even when indexer APIs lag.
-      const shouldReadPairTrades = useOnchainPairTrades && !isZeroAddress(effectivePair) && !isZeroAddress(pool.dexWethAddress);
+      const shouldReadPairTrades = useOnchainPairTrades && !isZeroAddress(effectivePair);
 
       if (shouldReadPoolTrades || shouldReadPairTrades) {
         const [localTradesRes, pairTradesRes] = await Promise.allSettled([

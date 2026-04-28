@@ -74,6 +74,10 @@ const MAX_BALANCE_READ_CONCURRENCY = 10;
 const MAX_SOCIAL_POOL_CONCURRENCY = 3;
 const LOG_LOOKBACK_BLOCKS = Math.max(120, Number(process.env.LOG_LOOKBACK_BLOCKS || 1200));
 const DEX_LOG_LOOKBACK_BLOCKS = Math.max(40, Number(process.env.DEX_LOG_LOOKBACK_BLOCKS || 220));
+const DEX_LOG_DEEP_LOOKBACK_BLOCKS = Math.max(
+  DEX_LOG_LOOKBACK_BLOCKS,
+  Number(process.env.DEX_LOG_DEEP_LOOKBACK_BLOCKS || 3500)
+);
 const TOKEN_TRADES_RESPONSE_LIMIT = Math.max(20, Math.min(200, Number(process.env.TOKEN_TRADES_RESPONSE_LIMIT || 80)));
 const TOKEN_CHART_RESPONSE_LIMIT = Math.max(20, Math.min(240, Number(process.env.TOKEN_CHART_RESPONSE_LIMIT || 120)));
 const DEFAULT_LOG_RANGE = Math.max(5, Number(process.env.DEFAULT_LOG_RANGE || 45000));
@@ -1604,6 +1608,22 @@ async function readPairRecentTrades(provider, pairAddress, launchTokenAddress, w
       contract.token1(),
       queryFilterAdaptive(contract, contract.filters.Swap(), fromBlock, latestBlock, initialSwapRange)
     ]);
+
+    // If recent-window query returns no swaps on first load, do one deeper scan.
+    // This helps new viewers see history when the last swaps are older than the
+    // shallow lookback but Gecko index rows are still delayed.
+    if ((!events || !events.length) && !cached) {
+      const deepFromBlock = Math.max(0, latestBlock - DEX_LOG_DEEP_LOOKBACK_BLOCKS);
+      if (deepFromBlock < fromBlock) {
+        events = await queryFilterAdaptive(
+          contract,
+          contract.filters.Swap(),
+          deepFromBlock,
+          latestBlock,
+          initialSwapRange
+        );
+      }
+    }
   } catch {
     return { trades: [], chart: [] };
   }

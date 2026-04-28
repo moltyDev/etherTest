@@ -1596,10 +1596,13 @@ async function readPairRecentTrades(provider, pairAddress, launchTokenAddress, w
   let token1;
   let events = [];
   try {
+    // Start with a smaller range for pair swap logs to avoid provider plans
+    // (for example QuickNode discover) rejecting very wide eth_getLogs windows.
+    const initialSwapRange = Math.min(DEFAULT_LOG_RANGE, 180);
     [token0, token1, events] = await Promise.all([
       contract.token0(),
       contract.token1(),
-      queryFilterAdaptive(contract, contract.filters.Swap(), fromBlock, latestBlock)
+      queryFilterAdaptive(contract, contract.filters.Swap(), fromBlock, latestBlock, initialSwapRange)
     ]);
   } catch {
     return { trades: [], chart: [] };
@@ -2146,7 +2149,7 @@ app.get("/api/token/:token", async (req, res) => {
       // Keep token page indexer-first, but allow on-chain pair trades to improve
       // freshness and avoid missing multiple recent swaps.
       const useOnchainPoolTrades = String(process.env.USE_ONCHAIN_POOL_TRADES || "0") === "1";
-      const useOnchainPairTrades = String(process.env.USE_ONCHAIN_PAIR_TRADES || "1") !== "0";
+      const useOnchainPairTrades = true;
       const useOnchainTopHolders = String(process.env.USE_ONCHAIN_TOP_HOLDERS || "0") === "1";
 
       const [topHoldersRes, geckoRes, geckoTradesRes] = await Promise.allSettled([
@@ -2162,7 +2165,9 @@ app.get("/api/token/:token", async (req, res) => {
       let localTradesPayload = { trades: [], chart: [] };
       let pairTradesPayload = { trades: [], chart: [] };
       const shouldReadPoolTrades = useOnchainPoolTrades && !pool.graduated && (!Array.isArray(geckoTrades) || !geckoTrades.length);
-      const shouldReadPairTrades = useOnchainPairTrades && (!Array.isArray(geckoTrades) || geckoTrades.length < 3);
+      // Always sample recent pair swaps and merge with indexer data.
+      // This keeps trade history visible even when indexer APIs lag.
+      const shouldReadPairTrades = useOnchainPairTrades && !isZeroAddress(effectivePair) && !isZeroAddress(pool.dexWethAddress);
 
       if (shouldReadPoolTrades || shouldReadPairTrades) {
         const [localTradesRes, pairTradesRes] = await Promise.allSettled([

@@ -545,7 +545,52 @@ function buildSyntheticOptimisticTrade({
 
 function getTokenFromUrl() {
   const params = new URLSearchParams(window.location.search);
-  return params.get("token") || "";
+  const direct =
+    params.get("token") ||
+    params.get("ca") ||
+    params.get("address") ||
+    params.get("contract") ||
+    params.get("pair") ||
+    "";
+  if (direct) return direct;
+
+  const pathMatch = window.location.pathname.match(/\/token\/(0x[a-fA-F0-9]{40})/);
+  if (pathMatch?.[1]) return pathMatch[1];
+
+  try {
+    const viewed = JSON.parse(localStorage.getItem("etherpump.search.viewed.v1") || "[]");
+    if (Array.isArray(viewed) && viewed[0]?.token) {
+      return String(viewed[0].token);
+    }
+  } catch {
+    // ignore local storage parse issues
+  }
+  return "";
+}
+
+async function resolveTokenAddressByPoolishAddress(address) {
+  const needle = normalizeAddress(address);
+  if (!needle) return "";
+
+  const seen = new Set();
+  let offset = 0;
+  for (let i = 0; i < 8; i++) {
+    const page = await api.launches(60, offset);
+    const launches = Array.isArray(page?.launches) ? page.launches : [];
+    if (!launches.length) break;
+    for (const launch of launches) {
+      const tokenAddr = normalizeAddress(launch?.token || launch?.tokenAddress || "");
+      const pairAddr = normalizeAddress(launch?.pool?.migratedPair || "");
+      const poolAddr = normalizeAddress(launch?.poolAddress || launch?.pool || "");
+      if (tokenAddr && tokenAddr.toLowerCase() === needle.toLowerCase()) return tokenAddr;
+      if (pairAddr && pairAddr.toLowerCase() === needle.toLowerCase()) return tokenAddr || "";
+      if (poolAddr && poolAddr.toLowerCase() === needle.toLowerCase()) return tokenAddr || "";
+      if (tokenAddr) seen.add(tokenAddr.toLowerCase());
+    }
+    offset += launches.length;
+    if (launches.length < 60) break;
+  }
+  return "";
 }
 
 function circulatingSupplyFloat(launch) {
@@ -1780,7 +1825,21 @@ async function onClaimCreatorRewards() {
 
 async function loadTokenPage(forceFresh = false, lite = false) {
   if (!state.token) throw new Error("Missing token query parameter");
-  const payload = await api.token(state.token, { fresh: forceFresh, lite });
+  let payload;
+  try {
+    payload = await api.token(state.token, { fresh: forceFresh, lite });
+  } catch (err) {
+    const text = String(err?.message || "").toLowerCase();
+    const recoverable = text.includes("token launch not found") || text.includes("invalid token address") || text.includes("http 404");
+    if (!recoverable) throw err;
+    const resolved = await resolveTokenAddressByPoolishAddress(state.token);
+    if (!resolved) throw err;
+    state.token = resolved;
+    const next = new URL(window.location.href);
+    next.searchParams.set("token", resolved);
+    window.history.replaceState({}, "", next.toString());
+    payload = await api.token(state.token, { fresh: forceFresh, lite });
+  }
   if (payload?.launch?.creator) {
     await hydrateUserProfiles([payload.launch.creator], { force: forceFresh });
   }

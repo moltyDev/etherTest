@@ -84,11 +84,20 @@ const ui = {
   buyTabBtn: document.getElementById("buyTabBtn"),
   sellTabBtn: document.getElementById("sellTabBtn"),
   walletBalance: document.getElementById("walletBalance"),
+  walletBalanceUsd: document.getElementById("walletBalanceUsd"),
+  tradeMaxBtn: document.getElementById("tradeMaxBtn"),
+  tradePrimaryAmount: document.getElementById("tradePrimaryAmount"),
+  tradePrimaryUnit: document.getElementById("tradePrimaryUnit"),
+  tradeApproxLine: document.getElementById("tradeApproxLine"),
+  tradeReceiveLine: document.getElementById("tradeReceiveLine"),
   tradeTable: document.getElementById("tradeTableBody"),
   tradeFilterEnabled: document.getElementById("tradeFilterEnabled"),
   tradeFilterMin: document.getElementById("tradeFilterMin"),
   creatorLabel: document.getElementById("creatorLabel"),
   creatorShare: document.getElementById("creatorShare"),
+  creatorClaimableUsd: document.getElementById("creatorClaimableUsd"),
+  creatorUnclaimedLine: document.getElementById("creatorUnclaimedLine"),
+  creatorSharePct: document.getElementById("creatorSharePct"),
   openCreator: document.getElementById("openCreator"),
   creatorProfileLink: document.getElementById("creatorProfileLink"),
   creatorRewardAvatar: document.getElementById("creatorRewardAvatar"),
@@ -273,6 +282,17 @@ function creatorClaimableUsdFromLaunch(launch) {
   const valueEth = Number(ethers.formatUnits(valueInEthWei, 18));
   if (!Number.isFinite(valueEth) || valueEth <= 0) return 0;
   return ethToUsd(valueEth, state.ethUsd);
+}
+
+function toPositiveNumber(raw) {
+  const n = Number(String(raw ?? "").trim());
+  return Number.isFinite(n) && n > 0 ? n : 0;
+}
+
+function formatTradeNumber(value, maxFractionDigits = 6) {
+  const n = Number(value || 0);
+  if (!Number.isFinite(n) || n <= 0) return "0";
+  return n.toLocaleString(undefined, { maximumFractionDigits: maxFractionDigits });
 }
 
 function formatAmountForInput(amountWei, decimals = 18, maxFractionDigits = 6) {
@@ -597,6 +617,10 @@ function updateTradeQuickTokenLabels(symbol = "TOK") {
   const tokenLabel = String(symbol || "TOK").toUpperCase().slice(0, 6) || "TOK";
   for (const btn of ui.quickTokenButtons || []) {
     const raw = String(btn.dataset.quickToken || "");
+    if (raw.endsWith("%")) {
+      btn.textContent = raw;
+      continue;
+    }
     if (raw === "max") {
       btn.textContent = `Max ${tokenLabel}`;
       continue;
@@ -903,6 +927,17 @@ function setTokenHeader(launch) {
     const claimableUsd = creatorClaimableUsdFromLaunch(launch);
     ui.creatorShare.textContent = `Claimable ${formatCompactUsd(claimableUsd)} · Min $${CLAIM_MIN_USD}`;
     ui.creatorShare.hidden = false;
+  }
+  if (ui.creatorClaimableUsd || ui.creatorUnclaimedLine || ui.creatorSharePct) {
+    const claimableWei = parseBigIntSafe(launch?.feeSnapshot?.creatorClaimableWei || "0");
+    const claimableUsd = creatorClaimableUsdFromLaunch(launch);
+    const claimableToken = Number(ethers.formatUnits(claimableWei, 18));
+    if (ui.creatorClaimableUsd) ui.creatorClaimableUsd.textContent = formatCompactUsd(claimableUsd);
+    if (ui.creatorUnclaimedLine) {
+      const symbol = String(launch?.symbol || "TOKEN").toUpperCase();
+      ui.creatorUnclaimedLine.textContent = `Unclaimed ${formatTradeNumber(claimableToken, 4)} ${symbol}`;
+    }
+    if (ui.creatorSharePct) ui.creatorSharePct.textContent = "100%";
   }
 
   if (ui.openCreator) {
@@ -1282,18 +1317,23 @@ function renderDelta(el, delta) {
 function renderOverview() {
   const all = state.allSeries;
   if (!all.length) {
-    const dexMcapUsd = Number(state.dex?.marketCapUsd || state.dex?.fdvUsd || 0);
+    const geckoMcapUsd = Number(state.gecko?.snapshot?.marketCapUsd || state.gecko?.snapshot?.fdvUsd || 0);
+    const dexMcapUsd = Number(state.dex?.marketCapUsd || state.dex?.fdvUsd || geckoMcapUsd || 0);
     const poolMcapEth = Number(state.launch?.pool?.marketCapEth || 0);
     const poolMcapUsd = poolMcapEth > 0 ? ethToUsd(poolMcapEth, state.ethUsd) : 0;
-    const dexPriceEth = Number(state.dex?.priceNative || state.launch?.pool?.spotPriceEth || 0);
+    const geckoPriceEth = Number(state.gecko?.snapshot?.priceNative || 0);
+    const dexPriceEth = Number(state.dex?.priceNative || geckoPriceEth || state.launch?.pool?.spotPriceEth || 0);
     ui.marketCapHeadline.textContent = dexMcapUsd > 0 ? formatCompactUsd(dexMcapUsd) : poolMcapUsd > 0 ? formatCompactUsd(poolMcapUsd) : "-";
     ui.lastPrice.textContent = dexPriceEth > 0 ? formatEthDisplay(dexPriceEth) : "-";
     ui.marketCapDelta24h.textContent =
-      Number.isFinite(Number(state.dex?.priceChange24hPct))
-        ? `${Number(state.dex?.priceChange24hPct || 0) > 0 ? "+" : ""}${Number(state.dex?.priceChange24hPct || 0).toFixed(2)}% 24h`
+      Number.isFinite(Number(state.dex?.priceChange24hPct ?? state.gecko?.snapshot?.priceChange24hPct))
+        ? `${Number(state.dex?.priceChange24hPct ?? state.gecko?.snapshot?.priceChange24hPct || 0) > 0 ? "+" : ""}${Number(
+            state.dex?.priceChange24hPct ?? state.gecko?.snapshot?.priceChange24hPct || 0
+          ).toFixed(2)}% 24h`
         : "24h change unavailable yet";
-    applyDeltaClass(ui.marketCapDelta24h, Number(state.dex?.priceChange24hPct || 0));
-    ui.volume24h.textContent = Number(state.dex?.volume24hUsd || 0) > 0 ? formatCompactUsd(Number(state.dex.volume24hUsd)) : "-";
+    applyDeltaClass(ui.marketCapDelta24h, Number(state.dex?.priceChange24hPct ?? state.gecko?.snapshot?.priceChange24hPct || 0));
+    const dexVolume24hUsd = Number(state.dex?.volume24hUsd || state.gecko?.snapshot?.volume24hUsd || 0);
+    ui.volume24h.textContent = dexVolume24hUsd > 0 ? formatCompactUsd(dexVolume24hUsd) : "-";
     ui.delta5m.textContent = "-";
     ui.delta1h.textContent = "-";
     ui.delta6h.textContent = "-";
@@ -1307,7 +1347,8 @@ function renderOverview() {
   const last = all[all.length - 1];
   const lastMcapUsd = ethToUsd(last.mcap, state.ethUsd);
   ui.marketCapHeadline.textContent = formatCompactUsd(lastMcapUsd);
-  ui.lastPrice.textContent = formatEthDisplay(Number(last.price || 0));
+  const latestPriceEth = Number(last.price || 0) > 0 ? Number(last.price || 0) : Number(state.dex?.priceNative || state.gecko?.snapshot?.priceNative || 0);
+  ui.lastPrice.textContent = latestPriceEth > 0 ? formatEthDisplay(latestPriceEth) : "-";
 
   const d5 = computeDelta(all, "mcap", RANGE_MS["5m"]);
   const d1h = computeDelta(all, "mcap", RANGE_MS["1h"]);
@@ -1334,7 +1375,7 @@ function renderOverview() {
     return sum + (Number.isFinite(eth) ? eth : 0);
   }, 0);
   const tradeVolume24hUsd = ethToUsd(volume24hEth, state.ethUsd);
-  const dexVolume24hUsd = Number(state.dex?.volume24hUsd || 0);
+  const dexVolume24hUsd = Number(state.dex?.volume24hUsd || state.gecko?.snapshot?.volume24hUsd || 0);
   const volume24hUsd = tradeVolume24hUsd > 0 ? tradeVolume24hUsd : dexVolume24hUsd;
   ui.volume24h.textContent = volume24hUsd > 0 ? formatCompactUsd(volume24hUsd) : "$0";
 
@@ -1427,19 +1468,59 @@ function setTradeTab(isBuy) {
     ui.sellFields.style.display = isBuy ? "none" : "grid";
     ui.sellBtn.style.display = isBuy ? "none" : "block";
   }
+  renderTradePanel();
 }
 
 async function refreshWalletBalance() {
   const ws = walletState();
   if (!ws.signer || !ws.address || !ws.provider) {
     ui.walletBalance.textContent = "Not connected";
+    if (ui.walletBalanceUsd) ui.walletBalanceUsd.textContent = "($0)";
+    renderTradePanel();
     return;
   }
   try {
     const balance = await ws.provider.getBalance(ws.address);
+    const ethBalance = Number(ethers.formatUnits(balance, 18));
+    const usdBalance = ethToUsd(ethBalance, state.ethUsd);
     ui.walletBalance.textContent = `${formatEth(balance, 4)} ETH`;
+    if (ui.walletBalanceUsd) ui.walletBalanceUsd.textContent = `(${formatCompactUsd(usdBalance)})`;
   } catch {
     ui.walletBalance.textContent = "Unavailable";
+    if (ui.walletBalanceUsd) ui.walletBalanceUsd.textContent = "";
+  }
+  renderTradePanel();
+}
+
+function renderTradePanel() {
+  const symbol = String(state.launch?.symbol || "TOKEN").toUpperCase();
+  const buyEth = toPositiveNumber(ui.buyInput?.value);
+  const buyToken = toPositiveNumber(ui.buyTokenInput?.value);
+  const sellToken = toPositiveNumber(ui.sellInput?.value);
+  const sellEth = toPositiveNumber(ui.sellEthInput?.value);
+
+  if (state.isBuyTab) {
+    if (ui.tradePrimaryAmount) ui.tradePrimaryAmount.textContent = formatTradeNumber(buyEth, 6);
+    if (ui.tradePrimaryUnit) ui.tradePrimaryUnit.textContent = "ETH";
+    if (ui.tradeApproxLine) {
+      ui.tradeApproxLine.textContent = `~ ${formatCompactUsd(ethToUsd(buyEth, state.ethUsd))} · ~ ${formatTradeNumber(
+        buyToken,
+        4
+      )} ${symbol}`;
+    }
+    if (ui.tradeReceiveLine) ui.tradeReceiveLine.textContent = `You receive ≈ ${formatTradeNumber(buyToken, 4)} ${symbol}`;
+    if (ui.buyBtn) ui.buyBtn.textContent = buyEth > 0 ? `Buy ${formatTradeNumber(buyEth, 6)} ETH` : "Enter amount to buy";
+  } else {
+    if (ui.tradePrimaryAmount) ui.tradePrimaryAmount.textContent = formatTradeNumber(sellToken, 4);
+    if (ui.tradePrimaryUnit) ui.tradePrimaryUnit.textContent = symbol;
+    if (ui.tradeApproxLine) {
+      ui.tradeApproxLine.textContent = `~ ${formatCompactUsd(ethToUsd(sellEth, state.ethUsd))} · ~ ${formatTradeNumber(
+        sellEth,
+        6
+      )} ETH`;
+    }
+    if (ui.tradeReceiveLine) ui.tradeReceiveLine.textContent = `You receive ≈ ${formatTradeNumber(sellEth, 6)} ETH`;
+    if (ui.sellBtn) ui.sellBtn.textContent = sellToken > 0 ? `Sell ${formatTradeNumber(sellToken, 4)} ${symbol}` : "Enter amount to sell";
   }
 }
 
@@ -1474,18 +1555,22 @@ function setupInteractions() {
 
   ui.buyInput?.addEventListener("input", () => {
     queueTradeSync("buyFromEth", syncBuyTokenFromEth);
+    renderTradePanel();
   });
 
   ui.buyTokenInput?.addEventListener("input", () => {
     queueTradeSync("buyFromToken", syncBuyEthFromToken);
+    renderTradePanel();
   });
 
   ui.sellInput?.addEventListener("input", () => {
     queueTradeSync("sellFromToken", syncSellEthFromToken);
+    renderTradePanel();
   });
 
   ui.sellEthInput?.addEventListener("input", () => {
     queueTradeSync("sellFromEth", syncSellTokenFromEth);
+    renderTradePanel();
   });
 
   ui.quickEthButtons.forEach((btn) => {
@@ -1500,6 +1585,7 @@ function setupInteractions() {
           const v = Math.max(0, raw - 0.003);
           ui.buyInput.value = v > 0 ? v.toFixed(4) : "0";
           await syncBuyTokenFromEth();
+          renderTradePanel();
         } catch {
           // ignore
         }
@@ -1511,6 +1597,7 @@ function setupInteractions() {
           const tokenBalance = await getWalletTokenBalanceWei();
           ui.sellInput.value = formatAmountForInput(tokenBalance, 18, 4);
           await syncSellEthFromToken();
+          renderTradePanel();
         } catch {
           // ignore
         }
@@ -1520,11 +1607,13 @@ function setupInteractions() {
       if (state.isBuyTab) {
         ui.buyInput.value = value;
         await syncBuyTokenFromEth();
+        renderTradePanel();
       } else {
         if (ui.sellEthInput) {
           ui.sellEthInput.value = value;
         }
         await syncSellTokenFromEth();
+        renderTradePanel();
       }
     });
   });
@@ -1534,6 +1623,35 @@ function setupInteractions() {
       const value = String(btn.dataset.quickToken || "");
       if (!value) return;
 
+      if (value.endsWith("%")) {
+        const pct = Number(value.replace("%", ""));
+        if (Number.isFinite(pct) && pct > 0) {
+          if (state.isBuyTab) {
+            try {
+              const balance = await getWalletEthBalanceWei();
+              const raw = Number(ethers.formatEther(balance));
+              const v = Math.max(0, (raw * pct) / 100 - 0.003);
+              ui.buyInput.value = v > 0 ? v.toFixed(6) : "0";
+              await syncBuyTokenFromEth();
+              renderTradePanel();
+            } catch {
+              // ignore
+            }
+          } else {
+            try {
+              const tokenBalance = await getWalletTokenBalanceWei();
+              const scaled = (tokenBalance * BigInt(Math.round(pct * 100))) / 10000n;
+              ui.sellInput.value = formatAmountForInput(scaled, 18, 4);
+              await syncSellEthFromToken();
+              renderTradePanel();
+            } catch {
+              // ignore
+            }
+          }
+        }
+        return;
+      }
+
       if (value === "max" && state.isBuyTab) {
         try {
           const balance = await getWalletEthBalanceWei();
@@ -1541,6 +1659,7 @@ function setupInteractions() {
           const v = Math.max(0, raw - 0.003);
           ui.buyInput.value = v > 0 ? v.toFixed(4) : "0";
           await syncBuyTokenFromEth();
+          renderTradePanel();
         } catch {
           // ignore
         }
@@ -1552,6 +1671,7 @@ function setupInteractions() {
           const tokenBalance = await getWalletTokenBalanceWei();
           ui.sellInput.value = formatAmountForInput(tokenBalance, 18, 4);
           await syncSellEthFromToken();
+          renderTradePanel();
         } catch {
           // ignore
         }
@@ -1563,11 +1683,32 @@ function setupInteractions() {
           ui.buyTokenInput.value = value;
         }
         await syncBuyEthFromToken();
+        renderTradePanel();
       } else {
         ui.sellInput.value = value;
         await syncSellEthFromToken();
+        renderTradePanel();
       }
     });
+  });
+
+  ui.tradeMaxBtn?.addEventListener("click", async () => {
+    try {
+      if (state.isBuyTab) {
+        const balance = await getWalletEthBalanceWei();
+        const raw = Number(ethers.formatEther(balance));
+        const v = Math.max(0, raw - 0.003);
+        ui.buyInput.value = v > 0 ? v.toFixed(6) : "0";
+        await syncBuyTokenFromEth();
+      } else {
+        const tokenBalance = await getWalletTokenBalanceWei();
+        ui.sellInput.value = formatAmountForInput(tokenBalance, 18, 4);
+        await syncSellEthFromToken();
+      }
+      renderTradePanel();
+    } catch {
+      // ignore
+    }
   });
 
   ui.shareTokenBtn?.addEventListener("click", async () => {
@@ -1643,8 +1784,15 @@ async function loadTokenPage(forceFresh = false, lite = false) {
   if (payload?.launch?.creator) {
     await hydrateUserProfiles([payload.launch.creator], { force: forceFresh });
   }
+  const previousTrades = Array.isArray(state.trades) ? state.trades : [];
+  const previousSeries = Array.isArray(state.allSeries) ? state.allSeries : [];
   state.launch = payload.launch;
-  state.trades = mergeTradesWithOptimistic(payload.trades || []);
+  const incomingTrades = Array.isArray(payload.trades) ? payload.trades : [];
+  if (!lite || incomingTrades.length || !previousTrades.length) {
+    state.trades = mergeTradesWithOptimistic(incomingTrades);
+  } else {
+    state.trades = mergeTradesWithOptimistic(previousTrades);
+  }
   if (Array.isArray(payload.topHolders)) {
     state.topHolders = payload.topHolders;
   }
@@ -1659,9 +1807,15 @@ async function loadTokenPage(forceFresh = false, lite = false) {
   }
 
   appendLivePoint(payload.launch);
-  state.allSeries = buildSeries(payload);
+  const incomingChart = Array.isArray(payload.chart) ? payload.chart : [];
+  if (incomingChart.length || !lite || !previousSeries.length) {
+    state.allSeries = buildSeries(payload);
+  } else {
+    state.allSeries = previousSeries;
+  }
   renderOverview();
   await refreshWalletBalance();
+  renderTradePanel();
 }
 
 async function refreshEthUsd(force = false) {
@@ -1708,6 +1862,7 @@ async function syncBuyTokenFromEth() {
   const raw = String(ui.buyInput?.value || "").trim();
   if (!raw) {
     if (ui.buyTokenInput) ui.buyTokenInput.value = "";
+    renderTradePanel();
     return;
   }
 
@@ -1719,10 +1874,12 @@ async function syncBuyTokenFromEth() {
     if (ui.buyTokenInput) {
       ui.buyTokenInput.value = formatAmountForInput(quoted?.[1] || 0n, 18, 4);
     }
+    renderTradePanel();
   } catch {
     const price = spotPriceWei();
     if (!ui.buyTokenInput || price <= 0n) {
       if (ui.buyTokenInput) ui.buyTokenInput.value = "";
+      renderTradePanel();
       return;
     }
     try {
@@ -1730,8 +1887,10 @@ async function syncBuyTokenFromEth() {
       if (ethIn <= 0n) throw new Error("invalid eth");
       const approxTokenOut = (ethIn * 10n ** 18n) / price;
       ui.buyTokenInput.value = formatAmountForInput(approxTokenOut, 18, 4);
+      renderTradePanel();
     } catch {
       ui.buyTokenInput.value = "";
+      renderTradePanel();
     }
   }
 }
@@ -1740,6 +1899,7 @@ async function syncBuyEthFromToken() {
   const raw = String(ui.buyTokenInput?.value || "").trim();
   if (!raw) {
     ui.buyInput.value = "";
+    renderTradePanel();
     return;
   }
 
@@ -1749,10 +1909,12 @@ async function syncBuyEthFromToken() {
     const { router, path } = await resolveDexPathBuy();
     const quotedIn = await router.getAmountsIn(tokenOut, path);
     ui.buyInput.value = formatAmountForInput(quotedIn?.[0] || 0n, 18, 6);
+    renderTradePanel();
   } catch {
     const price = spotPriceWei();
     if (price <= 0n) {
       ui.buyInput.value = "";
+      renderTradePanel();
       return;
     }
     try {
@@ -1760,8 +1922,10 @@ async function syncBuyEthFromToken() {
       if (tokenOut <= 0n) throw new Error("invalid token");
       const approxEthIn = (tokenOut * price) / 10n ** 18n;
       ui.buyInput.value = formatAmountForInput(approxEthIn, 18, 6);
+      renderTradePanel();
     } catch {
       ui.buyInput.value = "";
+      renderTradePanel();
     }
   }
 }
@@ -1770,6 +1934,7 @@ async function syncSellEthFromToken() {
   const raw = String(ui.sellInput?.value || "").trim();
   if (!raw) {
     if (ui.sellEthInput) ui.sellEthInput.value = "";
+    renderTradePanel();
     return;
   }
 
@@ -1781,10 +1946,12 @@ async function syncSellEthFromToken() {
     if (ui.sellEthInput) {
       ui.sellEthInput.value = formatAmountForInput(quotedOut?.[1] || 0n, 18, 6);
     }
+    renderTradePanel();
   } catch {
     const price = spotPriceWei();
     if (!ui.sellEthInput || price <= 0n) {
       if (ui.sellEthInput) ui.sellEthInput.value = "";
+      renderTradePanel();
       return;
     }
     try {
@@ -1792,8 +1959,10 @@ async function syncSellEthFromToken() {
       if (tokenIn <= 0n) throw new Error("invalid token");
       const approxEthOut = (tokenIn * price) / 10n ** 18n;
       ui.sellEthInput.value = formatAmountForInput(approxEthOut, 18, 6);
+      renderTradePanel();
     } catch {
       ui.sellEthInput.value = "";
+      renderTradePanel();
     }
   }
 }
@@ -1802,6 +1971,7 @@ async function syncSellTokenFromEth() {
   const raw = String(ui.sellEthInput?.value || "").trim();
   if (!raw) {
     ui.sellInput.value = "";
+    renderTradePanel();
     return;
   }
 
@@ -1811,10 +1981,12 @@ async function syncSellTokenFromEth() {
     const { router, path } = await resolveDexPathSell();
     const quotedIn = await router.getAmountsIn(ethOut, path);
     ui.sellInput.value = formatAmountForInput(quotedIn?.[0] || 0n, 18, 4);
+    renderTradePanel();
   } catch {
     const price = spotPriceWei();
     if (price <= 0n) {
       ui.sellInput.value = "";
+      renderTradePanel();
       return;
     }
     try {
@@ -1822,8 +1994,10 @@ async function syncSellTokenFromEth() {
       if (ethOut <= 0n) throw new Error("invalid eth");
       const approxTokenIn = (ethOut * 10n ** 18n) / price;
       ui.sellInput.value = formatAmountForInput(approxTokenIn, 18, 4);
+      renderTradePanel();
     } catch {
       ui.sellInput.value = "";
+      renderTradePanel();
     }
   }
 }

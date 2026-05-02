@@ -3042,45 +3042,92 @@ button:disabled {
 
 .tokenpf-trade-card {
   display: grid;
-  gap: 0.58rem;
+  gap: 0.62rem;
+  background: linear-gradient(180deg, rgba(23, 28, 43, 0.94), rgba(17, 22, 34, 0.96));
+  border: 1px solid rgba(90, 103, 141, 0.35);
+  border-radius: 16px;
+  padding: 0.75rem;
 }
 
 .tokenpf-buy-sell-tabs {
-  background: rgba(159, 168, 191, 0.12);
-  border-radius: 10px;
-  padding: 0.22rem;
+  background: rgba(159, 168, 191, 0.09);
+  border-radius: 13px;
+  padding: 0.24rem;
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.22rem;
+  gap: 0.26rem;
 }
 
 .tokenpf-buy-sell-tabs button {
   border: 0;
-  border-radius: 8px;
+  border-radius: 10px;
   background: transparent;
   color: #b5bed8;
-  padding: 0.45rem 0.5rem;
+  padding: 0.52rem 0.5rem;
   font-weight: 700;
+  font-size: 1.01rem;
 }
 
 .tokenpf-buy-sell-tabs button.active {
-  background: #2dd77b;
-  color: #0d1710;
+  background: linear-gradient(90deg, #7f89b8, #9ca9df);
+  color: #0f1628;
+}
+
+#sellTabBtn.active {
+  background: linear-gradient(90deg, #f15f79, #f84f69);
+  color: #fff;
+}
+
+.tokenpf-primary-amount {
+  display: flex;
+  align-items: baseline;
+  justify-content: center;
+  gap: 0.45rem;
+  padding-top: 0.12rem;
+}
+
+.tokenpf-primary-amount b {
+  font-size: 3rem;
+  line-height: 0.95;
+  font-weight: 800;
+  letter-spacing: -0.03em;
+  color: #f2f5ff;
+}
+
+.tokenpf-primary-amount span {
+  font-size: 1.05rem;
+  color: #aeb8d8;
+  font-weight: 700;
+}
+
+.tokenpf-approx-line {
+  margin: 0;
+  text-align: center;
+  color: #8f9abf;
+  font-size: 0.95rem;
+}
+
+.tokenpf-receive-line {
+  margin: 0.1rem 0 0;
+  color: #bac5ea;
+  font-size: 0.96rem;
 }
 
 .tokenpf-trade-quick {
   display: flex;
-  gap: 0.35rem;
+  gap: 0.38rem;
   flex-wrap: wrap;
+  align-items: center;
 }
 
 .tokenpf-trade-quick button {
   border: 1px solid var(--line);
   border-radius: 999px;
-  padding: 0.2rem 0.45rem;
+  padding: 0.25rem 0.52rem;
   background: #191c2a;
   color: #d5def7;
-  font-size: 0.7rem;
+  font-size: 0.77rem;
+  font-weight: 700;
 }
 
 .tokenpf-trade-quick-token button {
@@ -3088,9 +3135,30 @@ button:disabled {
   color: #b8c3e6;
 }
 
+.tokenpf-quick-settings {
+  min-width: 30px;
+}
+
 .tokenpf-wallet-balance {
   color: var(--muted);
-  font-size: 0.75rem;
+  font-size: 0.9rem;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: 0.4rem;
+}
+
+.tokenpf-wallet-balance small {
+  color: #93a0c9;
+}
+
+.tokenpf-max-btn {
+  border: 0;
+  background: transparent;
+  color: #f2f4ff;
+  font-size: 0.95rem;
+  font-weight: 800;
+  padding: 0;
 }
 
 .tokenpf-wallet-balance b {
@@ -3103,18 +3171,18 @@ button:disabled {
 }
 
 .tokenpf-trade-field-label {
-  font-size: 0.72rem;
+  font-size: 0.82rem;
   color: #aeb9dc;
   letter-spacing: 0.01em;
 }
 
 .tokenpf-trade-input {
-  background: #181d2e;
+  background: #151b2b;
   border: 1px solid rgba(130, 141, 176, 0.48);
-  border-radius: 10px;
+  border-radius: 12px;
   color: #edf2ff;
-  padding: 0.56rem 0.66rem;
-  font-size: 0.95rem;
+  padding: 0.62rem 0.72rem;
+  font-size: 1.02rem;
 }
 
 .tokenpf-trade-input::placeholder {
@@ -3124,6 +3192,13 @@ button:disabled {
 .tokenpf-trade-input:focus {
   border-color: #8f99bd;
   box-shadow: 0 0 0 2px rgba(143, 153, 189, 0.2);
+}
+
+.tokenpf-turbo-row {
+  margin: 0;
+  text-align: right;
+  color: #9ba8cf;
+  font-size: 0.92rem;
 }
 
 .tokenpf-side-card {
@@ -3144,8 +3219,53 @@ button:disabled {
 
 .tokenpf-side-head span,
 .tokenpf-side-head a {
-  font-size: 0.73rem;
-  color: #71f4b2;
+  font-size: 0.82rem;
+  color: #89f3c2;
+}
+
+.tokenpf-edit-dist {
+  color: #89f3c2;
+}
+
+.tokenpf-reward-summary {
+  display: grid;
+  grid-template-columns: 1fr auto;
+  gap: 0.75rem;
+  align-items: center;
+}
+
+.tokenpf-reward-summary b {
+  font-size: 2rem;
+  line-height: 1.05;
+}
+
+.tokenpf-reward-subline {
+  display: block;
+  color: #dce4ff;
+  font-size: 1rem;
+  margin-top: 0.16rem;
+}
+
+.tokenpf-reward-share-box {
+  text-align: right;
+}
+
+.tokenpf-reward-share-box b {
+  font-size: 2rem;
+}
+
+.tokenpf-reward-share-box span {
+  color: #dce4ff;
+  font-size: 0.98rem;
+}
+
+.tokenpf-claim-btn {
+  width: 100%;
+  margin-top: 0.15rem;
+  padding-block: 0.74rem;
+  border-radius: 999px;
+  font-size: 1.02rem;
+  font-weight: 800;
 }
 
 .tokenpf-reward-row {
@@ -3726,6 +3846,15 @@ button:disabled {
   .tokenpf-chart-wrap {
     min-height: 430px;
   }
+
+  .tokenpf-primary-amount b {
+    font-size: 2.5rem;
+  }
+
+  .tokenpf-reward-summary b,
+  .tokenpf-reward-share-box b {
+    font-size: 1.6rem;
+  }
 }
 
 @media (max-width: 900px) {
@@ -3795,6 +3924,22 @@ button:disabled {
 
   .tokenpf-chart-wrap {
     min-height: 390px;
+  }
+
+  .tokenpf-trade-card {
+    padding: 0.65rem;
+  }
+
+  .tokenpf-primary-amount b {
+    font-size: 2.15rem;
+  }
+
+  .tokenpf-reward-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .tokenpf-reward-share-box {
+    text-align: left;
   }
 }
 
@@ -3897,6 +4042,15 @@ button:disabled {
 
   .tokenpf-mcap-head h2 {
     font-size: 1.5rem;
+  }
+
+  .tokenpf-primary-amount b {
+    font-size: 1.8rem;
+  }
+
+  .tokenpf-approx-line,
+  .tokenpf-receive-line {
+    font-size: 0.86rem;
   }
 
   .tokenpf-stat-strip {

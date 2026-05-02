@@ -319,20 +319,27 @@
                 <button class="active" id="buyTabBtn" type="button">Buy</button>
                 <button id="sellTabBtn" type="button">Sell</button>
               </div>
+              <div class="tokenpf-primary-amount">
+                <b id="tradePrimaryAmount">0</b>
+                <span id="tradePrimaryUnit">ETH</span>
+              </div>
+              <p id="tradeApproxLine" class="tokenpf-approx-line">~ $0 · ~ 0 TKN</p>
               <div class="tokenpf-trade-quick">
                 <button type="button" data-quick-eth="0.1">0.1 ETH</button>
                 <button type="button" data-quick-eth="0.5">0.5 ETH</button>
                 <button type="button" data-quick-eth="1">1 ETH</button>
                 <button type="button" data-quick-eth="max">Max ETH</button>
+                <button type="button" class="tokenpf-quick-settings" aria-label="Trade settings">⚙</button>
               </div>
               <div class="tokenpf-trade-quick tokenpf-trade-quick-token">
-                <button type="button" data-quick-token="1000">1K TOK</button>
-                <button type="button" data-quick-token="10000">10K TOK</button>
-                <button type="button" data-quick-token="100000">100K TOK</button>
+                <button type="button" data-quick-token="25%">25%</button>
+                <button type="button" data-quick-token="50%">50%</button>
+                <button type="button" data-quick-token="100%">100%</button>
                 <button type="button" data-quick-token="max">Max TOK</button>
               </div>
               <div class="tokenpf-wallet-balance">
-                Balance: <b id="walletBalance">0 ETH</b>
+                <span>Balance <b id="walletBalance">0 ETH</b> <small id="walletBalanceUsd">($0)</small></span>
+                <button id="tradeMaxBtn" class="tokenpf-max-btn" type="button">MAX</button>
               </div>
               <div id="buyFields" class="tokenpf-trade-fields">
                 <label class="tokenpf-trade-field-label" for="buyInput">Pay (ETH)</label>
@@ -340,6 +347,7 @@
                 <label class="tokenpf-trade-field-label" for="buyTokenInput">Receive (~tokens)</label>
                 <input id="buyTokenInput" class="tokenpf-trade-input" type="number" min="0" step="0.0001" placeholder="Token amount" />
               </div>
+              <p id="tradeReceiveLine" class="tokenpf-receive-line">You receive ≈ 0 tokens</p>
               <button id="buyBtn" class="btn-primary" type="button">Buy</button>
               <div id="sellFields" class="tokenpf-trade-fields">
                 <label class="tokenpf-trade-field-label" for="sellInput">Sell (tokens)</label>
@@ -348,14 +356,26 @@
                 <input id="sellEthInput" class="tokenpf-trade-input" type="number" min="0" step="0.00000001" placeholder="ETH amount" />
               </div>
               <button id="sellBtn" class="btn-danger" type="button">Sell</button>
+              <p class="tokenpf-turbo-row">⚙ 2% · Turbo</p>
             </article>
 
             <article class="panel-card tokenpf-side-card">
               <div class="tokenpf-side-head">
-                <h3>Creator rewards</h3>
-                <span>Coin timeline</span>
+                <h3>Your creator rewards</h3>
+                <a href="#" class="tokenpf-edit-dist">Edit distribution</a>
               </div>
-              <div class="tokenpf-reward-row">
+              <div class="tokenpf-reward-summary">
+                <div>
+                  <b id="creatorClaimableUsd">$0.00</b>
+                  <span id="creatorUnclaimedLine" class="tokenpf-reward-subline">Unclaimed 0 ETH</span>
+                </div>
+                <div class="tokenpf-reward-share-box">
+                  <b id="creatorSharePct">100%</b>
+                  <span>Rewards share</span>
+                </div>
+              </div>
+              <a id="openCreator" class="btn-primary tokenpf-claim-btn" href="/profile">Claim rewards</a>
+              <div class="tokenpf-reward-meta" hidden>
                 <a id="creatorProfileLink" class="tokenpf-reward-profile" href="/profile">
                   <span id="creatorRewardAvatar" class="token-creator-avatar tokenpf-reward-avatar">CR</span>
                   <span class="tokenpf-reward-copy">
@@ -364,7 +384,6 @@
                   </span>
                 </a>
                 <span id="creatorShare" hidden></span>
-                <a id="openCreator" class="btn-ghost tiny" href="/profile">Follow</a>
               </div>
             </article>
 

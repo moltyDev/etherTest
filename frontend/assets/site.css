@@ -1800,6 +1800,33 @@ button:disabled {
   border-radius: 12px;
 }
 
+.trend-image-spark {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 18%;
+  z-index: 1;
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 0.25s ease;
+}
+
+.trend-image-spark.fallback {
+  background: linear-gradient(180deg, rgba(7, 10, 18, 0), rgba(7, 10, 18, 0.12));
+  opacity: 0.95;
+}
+
+.trend-image-spark.ready {
+  opacity: 0.35;
+}
+
+.trend-image-spark svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
 .trend-media-link:hover img,
 .coin-image-link:hover .coin-image {
   animation: token-hover-pulse 480ms ease-out;
@@ -1820,6 +1847,7 @@ button:disabled {
 .trend-overlay {
   position: absolute;
   inset: auto 0 0 0;
+  z-index: 2;
   padding: 0.7rem 0.6rem 0.52rem;
   background: linear-gradient(180deg, rgba(8, 10, 18, 0), rgba(8, 10, 18, 0.92));
   display: grid;

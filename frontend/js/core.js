@@ -765,6 +765,26 @@ function cacheProfileLocal(address, value = {}) {
   return next;
 }
 
+function mergeProfileValues(address, localValue = {}, remoteValue = {}) {
+  const normalized = normalizeProfileAddress(address);
+  const local = normalizeProfileValue(normalized, localValue || {});
+  const remote = normalizeProfileValue(normalized, remoteValue || {});
+  const fallbackName = defaultUsername(normalized);
+
+  const localHasCustomName = String(local.username || "") !== fallbackName;
+  const remoteHasCustomName = String(remote.username || "") !== fallbackName;
+
+  const username = remoteHasCustomName
+    ? remote.username
+    : localHasCustomName
+      ? local.username
+      : remote.username || local.username || fallbackName;
+  const bio = String(remote.bio || "").trim() ? remote.bio : local.bio;
+  const imageUri = String(remote.imageUri || "").trim() ? remote.imageUri : local.imageUri;
+
+  return normalizeProfileValue(normalized, { username, bio, imageUri });
+}
+
 export function loadUserProfile(address) {
   if (!address) return { username: "Guest", bio: "", imageUri: "", address: "" };
   const store = loadProfilesStore();
@@ -821,8 +841,9 @@ export async function hydrateUserProfile(address, options = {}) {
   }
   const task = (async () => {
     try {
+      const local = loadUserProfile(normalized);
       const remote = await profileApiGet(`/api/user-profile/${normalized}`);
-      cacheProfileLocal(normalized, remote || {});
+      cacheProfileLocal(normalized, mergeProfileValues(normalized, local, remote || {}));
       return loadUserProfile(normalized);
     } catch {
       return loadUserProfile(normalized);
@@ -845,7 +866,8 @@ export async function hydrateUserProfiles(addresses = [], options = {}) {
       const payload = await profileApiPost("/api/user-profiles", { addresses: targets });
       const rows = payload?.profiles && typeof payload.profiles === "object" ? payload.profiles : {};
       for (const [key, value] of Object.entries(rows)) {
-        cacheProfileLocal(key, value || {});
+        const local = loadUserProfile(key);
+        cacheProfileLocal(key, mergeProfileValues(key, local, value || {}));
       }
       for (const missed of targets) {
         if (!rows[missed.toLowerCase()]) {

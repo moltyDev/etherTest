@@ -17,7 +17,7 @@ import {
   weiToUsd
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert } from "./ui.js";
-import { getLaunchSparklinePath, initCoinSearchOverlay } from "./searchModal.js?v=20260424d";
+import { getLaunchSparklinePath, initCoinSearchOverlay } from "./searchModal.js?v=20260504e";
 
 const WATCHLIST_KEY = "etherpump.watchlist.v1";
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;
@@ -366,6 +366,10 @@ function getExploreSparkKey(launch) {
   return `${String(launch?.token || "").toLowerCase()}:${String(launch?.pool?.migratedPair || launch?.poolAddress || "").toLowerCase()}`;
 }
 
+function getTrendingSparkKey(launch) {
+  return `trend:${getExploreSparkKey(launch)}`;
+}
+
 async function hydrateExploreSparklines(items = []) {
   if (!Array.isArray(items) || !items.length) return;
   const nodes = Array.from(document.querySelectorAll("[data-explore-spark]"));
@@ -374,6 +378,27 @@ async function hydrateExploreSparklines(items = []) {
   await Promise.all(
     items.slice(0, 36).map(async (launch) => {
       const key = getExploreSparkKey(launch);
+      const target = byKey.get(key);
+      if (!target) return;
+      const path = await getLaunchSparklinePath(launch, state.chainId);
+      if (!path) {
+        target.classList.add("fallback");
+        return;
+      }
+      target.classList.add("ready");
+      target.innerHTML = buildExploreSparklineSvg(path, key);
+    })
+  );
+}
+
+async function hydrateTrendingSparklines(items = []) {
+  if (!Array.isArray(items) || !items.length) return;
+  const nodes = Array.from(document.querySelectorAll("[data-trending-spark]"));
+  if (!nodes.length) return;
+  const byKey = new Map(nodes.map((node) => [String(node.dataset.trendingSpark || ""), node]));
+  await Promise.all(
+    items.slice(0, 18).map(async (launch) => {
+      const key = getTrendingSparkKey(launch);
       const target = byKey.get(key);
       if (!target) return;
       const path = await getLaunchSparklinePath(launch, state.chainId);
@@ -422,10 +447,12 @@ function buildExploreCard(launch) {
 function buildTrendingCard(launch) {
   const image = resolveCoinImage(launch);
   const createdLabel = humanAgo(launch.createdAt);
+  const sparkKey = getTrendingSparkKey(launch);
   return `
     <article class="trend-item">
       <a href="/token?token=${launch.token}" class="trend-media-link">
         <img src="${image}" alt="${launch.symbol} logo" />
+        <span class="trend-image-spark" data-trending-spark="${sparkKey}" aria-hidden="true"></span>
         <div class="trend-overlay">
           <strong>${formatLaunchMarketCap(launch)}</strong>
           <span>${trimText(launch.name, 18)}</span>
@@ -448,6 +475,9 @@ function renderTrending() {
     return;
   }
   ui.trendingWrap.innerHTML = items.map((launch) => buildTrendingCard(launch)).join("");
+  hydrateTrendingSparklines(items).catch(() => {
+    // keep static fallback if sparkline fetch fails
+  });
 }
 
 function renderExplore() {
@@ -741,6 +771,10 @@ async function refreshLaunches() {
   const launchesRes = await api.launches(80, 0);
   state.launches = launchesRes.launches || [];
   updateMoverSignals(state.launches);
+  const ws = walletState();
+  if (ws.address) {
+    await hydrateUserProfile(ws.address, { force: true });
+  }
   const creators = [...new Set(state.launches.map((launch) => String(launch?.creator || "").trim()).filter(Boolean))];
   await hydrateUserProfiles(creators, { force: false });
   renderTrending();

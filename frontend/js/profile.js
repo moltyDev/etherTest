@@ -22,7 +22,7 @@ import {
   walletState
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
-import { initCoinSearchOverlay } from "./searchModal.js?v=20260424d";
+import { initCoinSearchOverlay } from "./searchModal.js?v=20260504e";
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;
 const CLAIM_MIN_USD = 8;

@@ -68,6 +68,7 @@ const PROFILE_SOCIAL_CACHE_TTL_MS = 10_000;
 const PARTICIPANTS_CACHE_TTL_MS = 10_000;
 const GECKO_POOL_CACHE_TTL_MS = 5_000;
 const GECKO_TRADES_CACHE_TTL_MS = 3_000;
+const GECKO_SPARKLINE_CACHE_TTL_MS = 45_000;
 const DEX_TOKEN_CACHE_TTL_MS = 4_000;
 const MAX_LAUNCH_READ_CONCURRENCY = 8;
 const MAX_BALANCE_READ_CONCURRENCY = 10;
@@ -99,6 +100,7 @@ const profileCache = new Map();
 const participantsCache = new Map();
 const geckoPoolCache = new Map();
 const geckoTradesCache = new Map();
+const geckoSparklineCache = new Map();
 const dexTokenCache = new Map();
 const geckoIndexedSticky = new Set();
 const pairTradesCache = new Map();
@@ -425,6 +427,22 @@ function sanitizeProfileValue(address, value = {}) {
   };
 }
 
+function mergeProfileValues(address, localValue = {}, remoteValue = {}) {
+  const normalized = normalizeAddress(address);
+  const local = sanitizeProfileValue(normalized, localValue || {});
+  const remote = sanitizeProfileValue(normalized, remoteValue || {});
+  const fallbackName = defaultUsername(normalized);
+
+  const localHasCustomName = String(local.username || "") !== fallbackName;
+  const remoteHasCustomName = String(remote.username || "") !== fallbackName;
+
+  return sanitizeProfileValue(normalized, {
+    username: remoteHasCustomName ? remote.username : localHasCustomName ? local.username : remote.username || local.username,
+    bio: String(remote.bio || "").trim() ? remote.bio : local.bio,
+    imageUri: String(remote.imageUri || "").trim() ? remote.imageUri : local.imageUri
+  });
+}
+
 function cacheProfileRow(address, value = {}) {
   const normalized = normalizeAddress(address);
   if (!normalized) return;
@@ -551,6 +569,11 @@ async function supabaseRequest(relativePath, { method = "GET", query = null, bod
   }
 }
 
+function isSupabaseMissingTableError(error) {
+  const text = String(error?.message || "").toLowerCase();
+  return text.includes("pgrst205") || text.includes("could not find the table");
+}
+
 function quotedCsv(values = []) {
   const out = [];
   for (const value of values) {
@@ -618,18 +641,29 @@ async function getPersistedProfile(address) {
   try {
     if (isSupabaseConfigured()) {
       const row = await getSupabaseProfile(normalized);
+      const disk = getPersistedProfileSync(normalized);
       if (row) {
-        cacheProfileRow(normalized, row);
-        return sanitizeProfileValue(normalized, row);
+        const merged = mergeProfileValues(normalized, disk, row);
+        cacheProfileRow(normalized, merged);
+        return merged;
       }
-      const empty = sanitizeProfileValue(normalized, {});
-      cacheProfileRow(normalized, empty);
-      return empty;
+      cacheProfileRow(normalized, disk);
+      return disk;
     }
   } catch (error) {
     const cached = getCachedProfile(normalized);
     if (cached) {
       return cached;
+    }
+    if (isSupabaseMissingTableError(error)) {
+      if (!allowFileProfileFallback()) {
+        const empty = sanitizeProfileValue(normalized, {});
+        cacheProfileRow(normalized, empty);
+        return empty;
+      }
+      const disk = getPersistedProfileSync(normalized);
+      cacheProfileRow(normalized, disk);
+      return disk;
     }
     if (!allowFileProfileFallback()) {
       throw new Error(`Supabase profile read failed: ${error?.message || "connection error"}`);
@@ -651,9 +685,10 @@ async function getPersistedProfiles(addresses = []) {
       const rows = await getSupabaseProfiles(keys);
       const byId = new Map(rows.map((row) => [String(row?.address || "").toLowerCase(), row]));
       const out = {};
+      const disk = getPersistedProfilesSync(normalized);
       for (const address of normalized) {
         const key = address.toLowerCase();
-        const profile = sanitizeProfileValue(address, byId.get(key) || {});
+        const profile = mergeProfileValues(address, disk[key] || {}, byId.get(key) || {});
         out[key] = profile;
         cacheProfileRow(address, profile);
       }
@@ -669,6 +704,23 @@ async function getPersistedProfiles(addresses = []) {
     }
     if (Object.keys(cachedOnly).length) {
       return cachedOnly;
+    }
+    if (isSupabaseMissingTableError(error)) {
+      if (!allowFileProfileFallback()) {
+        const out = {};
+        for (const address of normalized) {
+          const empty = sanitizeProfileValue(address, {});
+          out[address.toLowerCase()] = empty;
+          cacheProfileRow(address, empty);
+        }
+        return out;
+      }
+      const disk = getPersistedProfilesSync(normalized);
+      for (const address of normalized) {
+        const key = address.toLowerCase();
+        cacheProfileRow(address, disk[key] || sanitizeProfileValue(address, {}));
+      }
+      return disk;
     }
     if (!allowFileProfileFallback()) {
       throw new Error(`Supabase profile batch read failed: ${error?.message || "connection error"}`);
@@ -694,10 +746,17 @@ async function setPersistedProfile(address, value = {}) {
         bio: next.bio,
         imageUri: next.imageUri
       });
+      // Keep a local mirror so profile data survives remote outages or table changes.
+      setPersistedProfileSync(normalized, next);
       cacheProfileRow(normalized, next);
       return next;
     }
   } catch (error) {
+    if (isSupabaseMissingTableError(error)) {
+      const saved = setPersistedProfileSync(normalized, next);
+      cacheProfileRow(normalized, saved);
+      return saved;
+    }
     if (!allowFileProfileFallback()) {
       throw new Error(`Supabase profile write failed: ${error?.message || "connection error"}`);
     }
@@ -942,6 +1001,16 @@ async function getPersistedSocialGraph(address) {
       };
     }
   } catch (error) {
+    if (isSupabaseMissingTableError(error)) {
+      if (!allowFileFollowFallback()) {
+        return { followers: [], following: [] };
+      }
+      const edges = listFollowEdgesFromStore(normalized);
+      return {
+        followers: mapFollowRows(edges.followers, "followers"),
+        following: mapFollowRows(edges.following, "following")
+      };
+    }
     if (!allowFileFollowFallback()) {
       throw new Error(`Supabase follow read failed: ${error?.message || "connection error"}`);
     }
@@ -983,6 +1052,26 @@ async function getFollowState(viewerAddress, targetAddress) {
       };
     }
   } catch (error) {
+    if (isSupabaseMissingTableError(error)) {
+      if (!allowFileFollowFallback()) {
+        return {
+          viewer,
+          target,
+          isFollowing: false,
+          followersCount: 0,
+          followingCount: 0
+        };
+      }
+      const targetSocial = listFollowEdgesFromStore(target);
+      const viewerSocial = listFollowEdgesFromStore(viewer);
+      return {
+        viewer,
+        target,
+        isFollowing: hasFollowInStore(viewer, target),
+        followersCount: targetSocial.followers.length,
+        followingCount: viewerSocial.following.length
+      };
+    }
     if (!allowFileFollowFallback()) {
       throw new Error(`Supabase follow state failed: ${error?.message || "connection error"}`);
     }
@@ -1018,6 +1107,8 @@ async function setFollowState(viewerAddress, targetAddress, follow = true) {
     if (isSupabaseFollowConfigured()) {
       await setFollowInSupabase(viewer, target, follow);
       persisted = true;
+      // Keep a local mirror so follower data survives remote cache/schema outages.
+      setFollowInStore(viewer, target, follow);
     }
   } catch (error) {
     if (!allowFileFollowFallback()) {
@@ -1288,6 +1379,75 @@ async function readGeckoPoolTrades(chainId, pairAddress, tokenAddress, wethAddre
   } catch {
     setCachedValue(geckoTradesCache, cacheKey, [], GECKO_TRADES_CACHE_TTL_MS);
     return [];
+  }
+}
+
+function buildSparklinePathFromOhlcv(values = [], width = 112, height = 30) {
+  if (!Array.isArray(values) || values.length < 2) return "";
+  const min = Math.min(...values);
+  const max = Math.max(...values);
+  const span = Math.max(max - min, 1e-12);
+  const xStep = width / Math.max(values.length - 1, 1);
+
+  const points = values.map((value, index) => {
+    const x = index * xStep;
+    const y = height - ((value - min) / span) * height;
+    return [x, y];
+  });
+
+  return points.map(([x, y], idx) => `${idx === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
+}
+
+async function readGeckoPoolSparkline(chainId, pairAddress, options = {}) {
+  const pair = normalizeAddress(pairAddress);
+  if (!pair || pair === ethers.ZeroAddress) {
+    return { path: "", network: geckoNetworkForChain(chainId), source: "none" };
+  }
+
+  const network = geckoNetworkForChain(chainId);
+  const aggregate = Math.max(1, Math.min(60, Number(options.aggregate || 15)));
+  const limit = Math.max(8, Math.min(96, Number(options.limit || 24)));
+  const cacheKey = `${network}:${pair.toLowerCase()}:${aggregate}:${limit}`;
+  const cached = getCachedValue(geckoSparklineCache, cacheKey);
+  if (cached) {
+    return cached;
+  }
+
+  const url = `https://api.geckoterminal.com/api/v2/networks/${network}/pools/${pair}/ohlcv/minute?aggregate=${aggregate}&limit=${limit}&currency=usd`;
+
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: { accept: "application/json" },
+      signal: AbortSignal.timeout(3000)
+    });
+
+    if (!response.ok) {
+      const previous = geckoSparklineCache.get(cacheKey)?.value;
+      if (response.status === 429 && previous) {
+        return previous;
+      }
+      const empty = { path: "", network, source: "gecko-http" };
+      setCachedValue(geckoSparklineCache, cacheKey, empty, 8_000);
+      return empty;
+    }
+
+    const payload = await response.json();
+    const rows = Array.isArray(payload?.data?.attributes?.ohlcv_list) ? payload.data.attributes.ohlcv_list : [];
+    const closes = rows
+      .map((row) => ({ t: Number(row?.[0] || 0), c: Number(row?.[4] || 0) }))
+      .filter((row) => Number.isFinite(row.t) && row.t > 0 && Number.isFinite(row.c) && row.c > 0)
+      .sort((a, b) => a.t - b.t)
+      .map((row) => row.c);
+
+    const path = buildSparklinePathFromOhlcv(closes);
+    const value = { path, network, source: "gecko" };
+    setCachedValue(geckoSparklineCache, cacheKey, value, path ? GECKO_SPARKLINE_CACHE_TTL_MS : 8_000);
+    return value;
+  } catch {
+    const previous = geckoSparklineCache.get(cacheKey)?.value;
+    if (previous) return previous;
+    return { path: "", network, source: "gecko-error" };
   }
 }
 
@@ -2009,6 +2169,24 @@ app.get("/api/launches", async (req, res) => {
     });
 
     res.json(payload);
+  } catch (error) {
+    res.status(500).json({ error: error.message });
+  }
+});
+
+app.get("/api/sparkline", async (req, res) => {
+  try {
+    const pool = normalizeAddress(req.query.pool || "");
+    if (!pool) {
+      return res.status(400).json({ error: "Invalid pool address" });
+    }
+
+    const deployment = loadDeploymentConfig();
+    const requestedChainId = resolveRequestedChainId(req, deployment);
+    const aggregate = Number(req.query.aggregate || 15);
+    const limit = Number(req.query.limit || 24);
+    const sparkline = await readGeckoPoolSparkline(requestedChainId, pool, { aggregate, limit });
+    res.json(sparkline);
   } catch (error) {
     res.status(500).json({ error: error.message });
   }

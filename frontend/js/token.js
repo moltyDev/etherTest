@@ -1,4 +1,4 @@
-ï»¿import { api } from "./api.js";
+import { api } from "./api.js";
 import {
   defaultUsername,
   disconnectWallet,
@@ -24,7 +24,7 @@ import {
   walletState
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
-import { initCoinSearchOverlay, recordViewedLaunch } from "./searchModal.js?v=20260424d";
+import { initCoinSearchOverlay, recordViewedLaunch } from "./searchModal.js?v=20260504e";
 
 const RANGE_MS = {
   "5m": 5 * 60 * 1000,
@@ -568,6 +568,69 @@ function getTokenFromUrl() {
   return "";
 }
 
+async function fetchJsonRaw(path) {
+  const res = await fetch(path, { cache: "no-store" });
+  if (!res.ok) {
+    let message = `HTTP ${res.status}`;
+    try {
+      const body = await res.json();
+      message = body.error || message;
+    } catch {
+      // ignore parse failures
+    }
+    throw new Error(message);
+  }
+  return res.json();
+}
+
+async function fetchTokenRaw(tokenAddress, options = {}) {
+  const params = new URLSearchParams();
+  if (options.fresh) params.set("fresh", "1");
+  if (options.lite) params.set("lite", "1");
+  if (options.chainId) params.set("chainId", String(options.chainId));
+  const qs = params.toString();
+  return fetchJsonRaw(`/api/token/${tokenAddress}${qs ? `?${qs}` : ""}`);
+}
+
+async function discoverTokenAcrossChains(tokenAddress) {
+  const normalized = normalizeAddress(tokenAddress);
+  if (!normalized) return null;
+
+  let cfg;
+  try {
+    // Intentionally bypass preferred-chain injection so we can see all supported chains.
+    cfg = await fetchJsonRaw("/api/config");
+  } catch {
+    return null;
+  }
+
+  const candidates = [];
+  const supported = Array.isArray(cfg?.supportedChains) ? cfg.supportedChains : [];
+  for (const row of supported) {
+    const id = Number(row?.chainId || 0);
+    if (Number.isFinite(id) && id > 0 && !candidates.includes(id)) {
+      candidates.push(id);
+    }
+  }
+  const cfgChain = Number(cfg?.chainId || 0);
+  if (Number.isFinite(cfgChain) && cfgChain > 0 && !candidates.includes(cfgChain)) {
+    candidates.unshift(cfgChain);
+  }
+
+  for (const chainId of candidates) {
+    try {
+      const payload = await fetchTokenRaw(normalized, { fresh: true, chainId });
+      if (payload?.launch?.token) {
+        return { chainId, payload };
+      }
+    } catch {
+      // try next chain
+    }
+  }
+
+  return null;
+}
+
 async function resolveTokenAddressByPoolishAddress(address) {
   const needle = normalizeAddress(address);
   if (!needle) return "";
@@ -940,6 +1003,7 @@ function setupEditProfileModal() {
 }
 
 function setTokenHeader(launch) {
+  if (!launch) return;
   const creatorAddress = String(launch?.creator || "");
   const creatorProfile = loadUserProfile(creatorAddress);
   const creatorName = creatorProfile.username || creatorHandle(creatorAddress);
@@ -949,8 +1013,8 @@ function setTokenHeader(launch) {
   const safeCreatorName = escapeHtml(creatorName);
   const safeCreatorImage = escapeHtml(creatorImage);
 
-  ui.tokenTitle.textContent = launch.name;
-  ui.tokenSymbolLine.textContent = `$${launch.symbol}`;
+  if (ui.tokenTitle) ui.tokenTitle.textContent = launch.name || "Token";
+  if (ui.tokenSymbolLine) ui.tokenSymbolLine.textContent = launch?.symbol ? `$${launch.symbol}` : "---";
 
   if (ui.tokenCreatorInfo) {
     ui.tokenCreatorInfo.innerHTML = `
@@ -963,14 +1027,14 @@ function setTokenHeader(launch) {
     `;
   }
 
-  ui.openCreator.href = `/profile?address=${launch.creator}`;
+  if (ui.openCreator) ui.openCreator.href = `/profile?address=${launch.creator}`;
   if (ui.creatorProfileLink) ui.creatorProfileLink.href = `/profile?address=${launch.creator}`;
-  ui.creatorLabel.textContent = creatorHandle(launch.creator);
+  if (ui.creatorLabel) ui.creatorLabel.textContent = creatorHandle(launch.creator);
   if (ui.creatorAddressLine) ui.creatorAddressLine.textContent = shortAddress(creatorAddress);
   setAvatarNode(ui.creatorRewardAvatar, creatorInitials, creatorImage);
   if (ui.creatorShare) {
     const claimableUsd = creatorClaimableUsdFromLaunch(launch);
-    ui.creatorShare.textContent = `Claimable ${formatCompactUsd(claimableUsd)} Â· Min $${CLAIM_MIN_USD}`;
+    ui.creatorShare.textContent = `Claimable ${formatCompactUsd(claimableUsd)} · Min $${CLAIM_MIN_USD}`;
     ui.creatorShare.hidden = false;
   }
   if (ui.creatorClaimableUsd || ui.creatorUnclaimedLine || ui.creatorSharePct) {
@@ -1017,8 +1081,10 @@ function setTokenHeader(launch) {
     }
   }
 
-  ui.tokenImage.src = resolveCoinImage(launch);
-  ui.tokenImage.style.display = "block";
+  if (ui.tokenImage) {
+    ui.tokenImage.src = resolveCoinImage(launch);
+    ui.tokenImage.style.display = "block";
+  }
   updateTradeQuickTokenLabels(launch.symbol);
 
   if (ui.terminalLink) {
@@ -1039,16 +1105,18 @@ function setTokenHeader(launch) {
 }
 function setSideMetrics(launch) {
   const dexReady = hasDexMarket(launch);
-  ui.bondingProgressLabel.textContent = dexReady ? "Live" : "Pending";
-  ui.bondingProgressFill.style.width = `${dexReady ? 100 : 8}%`;
-  ui.bondingStatusText.textContent = dexReady ? "Uniswap pair is live and tradable." : "Waiting for Uniswap pair indexing.";
+  if (ui.bondingProgressLabel) ui.bondingProgressLabel.textContent = dexReady ? "Live" : "Pending";
+  if (ui.bondingProgressFill) ui.bondingProgressFill.style.width = `${dexReady ? 100 : 8}%`;
+  if (ui.bondingStatusText) {
+    ui.bondingStatusText.textContent = dexReady ? "Uniswap pair is live and tradable." : "Waiting for Uniswap pair indexing.";
+  }
 
   const disabled = !dexReady;
-  ui.buyBtn.disabled = disabled;
-  ui.sellBtn.disabled = disabled;
-  ui.buyInput.disabled = disabled;
+  if (ui.buyBtn) ui.buyBtn.disabled = disabled;
+  if (ui.sellBtn) ui.sellBtn.disabled = disabled;
+  if (ui.buyInput) ui.buyInput.disabled = disabled;
   if (ui.buyTokenInput) ui.buyTokenInput.disabled = disabled;
-  ui.sellInput.disabled = disabled;
+  if (ui.sellInput) ui.sellInput.disabled = disabled;
   if (ui.sellEthInput) ui.sellEthInput.disabled = disabled;
 }
 
@@ -1370,13 +1438,12 @@ function renderOverview() {
     const dexPriceEth = Number(state.dex?.priceNative || geckoPriceEth || state.launch?.pool?.spotPriceEth || 0);
     ui.marketCapHeadline.textContent = dexMcapUsd > 0 ? formatCompactUsd(dexMcapUsd) : poolMcapUsd > 0 ? formatCompactUsd(poolMcapUsd) : "-";
     ui.lastPrice.textContent = dexPriceEth > 0 ? formatEthDisplay(dexPriceEth) : "-";
-    ui.marketCapDelta24h.textContent =
-      Number.isFinite(Number(state.dex?.priceChange24hPct ?? state.gecko?.snapshot?.priceChange24hPct))
-        ? `${Number(state.dex?.priceChange24hPct ?? state.gecko?.snapshot?.priceChange24hPct || 0) > 0 ? "+" : ""}${Number(
-            state.dex?.priceChange24hPct ?? state.gecko?.snapshot?.priceChange24hPct || 0
-          ).toFixed(2)}% 24h`
-        : "24h change unavailable yet";
-    applyDeltaClass(ui.marketCapDelta24h, Number(state.dex?.priceChange24hPct ?? state.gecko?.snapshot?.priceChange24hPct || 0));
+    const raw24hChange = state.dex?.priceChange24hPct ?? state.gecko?.snapshot?.priceChange24hPct;
+    const pct24hChange = Number(raw24hChange ?? 0);
+    ui.marketCapDelta24h.textContent = Number.isFinite(Number(raw24hChange))
+      ? `${pct24hChange > 0 ? "+" : ""}${pct24hChange.toFixed(2)}% 24h`
+      : "24h change unavailable yet";
+    applyDeltaClass(ui.marketCapDelta24h, pct24hChange);
     const dexVolume24hUsd = Number(state.dex?.volume24hUsd || state.gecko?.snapshot?.volume24hUsd || 0);
     ui.volume24h.textContent = dexVolume24hUsd > 0 ? formatCompactUsd(dexVolume24hUsd) : "-";
     ui.delta5m.textContent = "-";
@@ -1461,6 +1528,7 @@ function tradeFilterThreshold() {
 }
 
 function renderTrades(trades) {
+  if (!ui.tradeTable) return;
   ui.tradeTable.innerHTML = "";
   const minEth = tradeFilterThreshold();
   const filtered = (trades || []).filter((trade) => {
@@ -1548,23 +1616,23 @@ function renderTradePanel() {
     if (ui.tradePrimaryAmount) ui.tradePrimaryAmount.textContent = formatTradeNumber(buyEth, 6);
     if (ui.tradePrimaryUnit) ui.tradePrimaryUnit.textContent = "ETH";
     if (ui.tradeApproxLine) {
-      ui.tradeApproxLine.textContent = `~ ${formatCompactUsd(ethToUsd(buyEth, state.ethUsd))} Â· ~ ${formatTradeNumber(
+      ui.tradeApproxLine.textContent = `~ ${formatCompactUsd(ethToUsd(buyEth, state.ethUsd))} · ~ ${formatTradeNumber(
         buyToken,
         4
       )} ${symbol}`;
     }
-    if (ui.tradeReceiveLine) ui.tradeReceiveLine.textContent = `You receive â‰ˆ ${formatTradeNumber(buyToken, 4)} ${symbol}`;
+    if (ui.tradeReceiveLine) ui.tradeReceiveLine.textContent = `You receive ˜ ${formatTradeNumber(buyToken, 4)} ${symbol}`;
     if (ui.buyBtn) ui.buyBtn.textContent = buyEth > 0 ? `Buy ${formatTradeNumber(buyEth, 6)} ETH` : "Enter amount to buy";
   } else {
     if (ui.tradePrimaryAmount) ui.tradePrimaryAmount.textContent = formatTradeNumber(sellToken, 4);
     if (ui.tradePrimaryUnit) ui.tradePrimaryUnit.textContent = symbol;
     if (ui.tradeApproxLine) {
-      ui.tradeApproxLine.textContent = `~ ${formatCompactUsd(ethToUsd(sellEth, state.ethUsd))} Â· ~ ${formatTradeNumber(
+      ui.tradeApproxLine.textContent = `~ ${formatCompactUsd(ethToUsd(sellEth, state.ethUsd))} · ~ ${formatTradeNumber(
         sellEth,
         6
       )} ETH`;
     }
-    if (ui.tradeReceiveLine) ui.tradeReceiveLine.textContent = `You receive â‰ˆ ${formatTradeNumber(sellEth, 6)} ETH`;
+    if (ui.tradeReceiveLine) ui.tradeReceiveLine.textContent = `You receive ˜ ${formatTradeNumber(sellEth, 6)} ETH`;
     if (ui.sellBtn) ui.sellBtn.textContent = sellToken > 0 ? `Sell ${formatTradeNumber(sellToken, 4)} ${symbol}` : "Enter amount to sell";
   }
 }
@@ -1827,21 +1895,59 @@ async function loadTokenPage(forceFresh = false, lite = false) {
   if (!state.token) throw new Error("Missing token query parameter");
   let payload;
   try {
-    payload = await api.token(state.token, { fresh: forceFresh, lite });
+    // Always try chain-agnostic fetch first so stale preferred-chain state doesn't blank token page.
+    payload = await fetchTokenRaw(state.token, { fresh: forceFresh, lite });
   } catch (err) {
+    // First, attempt a chain-agnostic recovery for any token-load failure.
+    // This fixes stale preferred-chain cases where the token exists on a different chain.
+    const discoveredAny = await discoverTokenAcrossChains(state.token).catch(() => null);
+    if (discoveredAny?.payload) {
+      state.chainId = discoveredAny.chainId;
+      setPreferredChainId(discoveredAny.chainId);
+      if (ui.netChip) ui.netChip.textContent = `Chain ${discoveredAny.chainId}`;
+      payload = discoveredAny.payload;
+    } else {
     const text = String(err?.message || "").toLowerCase();
     const recoverable = text.includes("token launch not found") || text.includes("invalid token address") || text.includes("http 404");
     if (!recoverable) throw err;
     const resolved = await resolveTokenAddressByPoolishAddress(state.token);
-    if (!resolved) throw err;
-    state.token = resolved;
-    const next = new URL(window.location.href);
-    next.searchParams.set("token", resolved);
-    window.history.replaceState({}, "", next.toString());
-    payload = await api.token(state.token, { fresh: forceFresh, lite });
+    if (!resolved) {
+      const discovered = await discoverTokenAcrossChains(state.token);
+      if (!discovered?.payload) throw err;
+      state.chainId = discovered.chainId;
+      setPreferredChainId(discovered.chainId);
+      if (ui.netChip) ui.netChip.textContent = `Chain ${discovered.chainId}`;
+      payload = discovered.payload;
+    } else {
+      state.token = resolved;
+      const next = new URL(window.location.href);
+      next.searchParams.set("token", resolved);
+      window.history.replaceState({}, "", next.toString());
+      try {
+        payload = await api.token(state.token, { fresh: forceFresh, lite });
+      } catch {
+        const discovered = await discoverTokenAcrossChains(state.token);
+        if (!discovered?.payload) throw err;
+        state.chainId = discovered.chainId;
+        setPreferredChainId(discovered.chainId);
+        if (ui.netChip) ui.netChip.textContent = `Chain ${discovered.chainId}`;
+        payload = discovered.payload;
+      }
+    }
+    }
   }
   if (payload?.launch?.creator) {
-    await hydrateUserProfiles([payload.launch.creator], { force: forceFresh });
+    const ws = walletState();
+    const creatorAddress = String(payload.launch.creator || "");
+    const forceCreatorProfile =
+      Boolean(forceFresh) ||
+      (Boolean(ws.address) && String(ws.address || "").toLowerCase() === creatorAddress.toLowerCase());
+    try {
+      await hydrateUserProfiles([creatorAddress], { force: forceCreatorProfile });
+      payload.launch.creatorProfile = loadUserProfile(creatorAddress);
+    } catch {
+      payload.launch.creatorProfile = payload.launch.creatorProfile || loadUserProfile(creatorAddress);
+    }
   }
   const previousTrades = Array.isArray(state.trades) ? state.trades : [];
   const previousSeries = Array.isArray(state.allSeries) ? state.allSeries : [];
@@ -2204,45 +2310,55 @@ async function init() {
     state.explorerBaseUrl = "";
   }
 
-  walletHub = initWalletHubMenu({
-    triggerEl: ui.walletHubBtn,
-    menuEl: ui.walletHubMenu,
-    balanceEl: ui.walletHubBalance,
-    balanceLargeEl: ui.walletHubBalanceLarge,
-    nativeEl: ui.walletHubNative,
-    addressBtnEl: ui.walletHubAddressBtn,
-    historyLinkEl: ui.walletHubHistoryLink,
-    depositBtnEl: ui.walletHubDepositBtn,
-    tradeLinkEl: ui.walletHubTradeLink,
-    buyLinkEl: ui.walletHubBuyLink,
-    depositModalEl: ui.depositModal,
-    depositCloseBtnEl: ui.depositCloseBtn,
-    depositCopyBtnEl: ui.depositCopyBtn,
-    depositAddressEl: ui.depositAddressText,
-    depositQrEl: ui.depositQrImage,
-    alertEl: ui.alert,
-    onOpen: () => setProfileMenuOpen(false)
-  });
+  try {
+    walletHub = initWalletHubMenu({
+      triggerEl: ui.walletHubBtn,
+      menuEl: ui.walletHubMenu,
+      balanceEl: ui.walletHubBalance,
+      balanceLargeEl: ui.walletHubBalanceLarge,
+      nativeEl: ui.walletHubNative,
+      addressBtnEl: ui.walletHubAddressBtn,
+      historyLinkEl: ui.walletHubHistoryLink,
+      depositBtnEl: ui.walletHubDepositBtn,
+      tradeLinkEl: ui.walletHubTradeLink,
+      buyLinkEl: ui.walletHubBuyLink,
+      depositModalEl: ui.depositModal,
+      depositCloseBtnEl: ui.depositCloseBtn,
+      depositCopyBtnEl: ui.depositCopyBtn,
+      depositAddressEl: ui.depositAddressText,
+      depositQrEl: ui.depositQrImage,
+      alertEl: ui.alert,
+      onOpen: () => setProfileMenuOpen(false)
+    });
+  } catch (err) {
+    console.warn("[token] wallet hub init failed", err);
+    walletHub = null;
+  }
 
-  walletControls = initWalletControls({
-    selectEl: ui.walletSelect,
-    connectBtn: ui.connectBtn,
-    disconnectBtn: ui.disconnectBtn,
-    labelEl: ui.walletLabel,
-    alertEl: ui.alert,
-    onConnected: async () => {
-      const ws = walletState();
-      if (ws.address) {
-        ui.profileNav.href = `/profile?address=${ws.address}`;
-        ui.profileNavSide.href = `/profile?address=${ws.address}`;
+  try {
+    walletControls = initWalletControls({
+      selectEl: ui.walletSelect,
+      connectBtn: ui.connectBtn,
+      disconnectBtn: ui.disconnectBtn,
+      labelEl: ui.walletLabel,
+      alertEl: ui.alert,
+      onConnected: async () => {
+        const ws = walletState();
+        if (ws.address) {
+          ui.profileNav.href = `/profile?address=${ws.address}`;
+          ui.profileNavSide.href = `/profile?address=${ws.address}`;
+        }
+        updateProfileIdentity();
+        if (state.launch) setTokenHeader(state.launch);
+        setProfileMenuOpen(false);
+        await walletHub?.refresh();
+        await refreshWalletBalance();
       }
-      updateProfileIdentity();
-      if (state.launch) setTokenHeader(state.launch);
-      setProfileMenuOpen(false);
-      await walletHub?.refresh();
-      await refreshWalletBalance();
-    }
-  });
+    });
+  } catch (err) {
+    console.warn("[token] wallet controls init failed", err);
+    walletControls = null;
+  }
 
   ui.disconnectBtn?.addEventListener("click", () => {
     updateProfileIdentity();
@@ -2272,6 +2388,7 @@ async function init() {
       return;
     }
     ui.connectBtn?.click();
+    setAlert(ui.alert, "Wallet connector unavailable in this tab. Refresh and try again.", true);
   });
 
   const ws = walletState();
@@ -2320,6 +2437,9 @@ async function init() {
 }
 
 init().catch((err) => {
+  console.error("[token] init failed", err);
+  if (ui.tokenTitle) ui.tokenTitle.textContent = "Load failed";
+  if (ui.tokenSymbolLine) ui.tokenSymbolLine.textContent = parseUiError(err);
   setAlert(ui.alert, parseUiError(err), true);
 });
 

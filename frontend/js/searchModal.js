@@ -5,12 +5,6 @@ const RECENT_SEARCHES_KEY = "etherpump.search.recent.v1";
 const RECENT_VIEWED_KEY = "etherpump.search.viewed.v1";
 const MAX_RECENT_SEARCHES = 10;
 const MAX_RECENT_VIEWED = 20;
-const GECKO_API_ROOT = "https://api.geckoterminal.com/api/v2";
-const GECKO_NETWORK_CANDIDATES = {
-  1: ["eth"],
-  11155111: ["sepolia-testnet", "eth-sepolia", "sepolia"],
-  default: ["eth"]
-};
 const sparklineCache = new Map();
 const sparklineInflight = new Map();
 const ETH_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
@@ -140,27 +134,6 @@ function getChainId(launches = []) {
   return 1;
 }
 
-function getNetworkCandidates(chainId) {
-  const id = Number(chainId || 0);
-  return GECKO_NETWORK_CANDIDATES[id] || GECKO_NETWORK_CANDIDATES.default;
-}
-
-function buildSparklinePath(values = [], width = 112, height = 30) {
-  if (!Array.isArray(values) || values.length < 2) return "";
-  const min = Math.min(...values);
-  const max = Math.max(...values);
-  const span = Math.max(max - min, 1e-12);
-  const xStep = width / Math.max(values.length - 1, 1);
-
-  const points = values.map((value, index) => {
-    const x = index * xStep;
-    const y = height - ((value - min) / span) * height;
-    return [x, y];
-  });
-
-  return points.map(([x, y], idx) => `${idx === 0 ? "M" : "L"}${x.toFixed(2)} ${y.toFixed(2)}`).join(" ");
-}
-
 async function fetchSparklinePath(launch, chainId) {
   const pool = getPoolAddress(launch);
   if (!pool) return "";
@@ -169,28 +142,22 @@ async function fetchSparklinePath(launch, chainId) {
   if (sparklineInflight.has(key)) return sparklineInflight.get(key);
 
   const task = (async () => {
-    const networks = getNetworkCandidates(chainId);
-    for (const network of networks) {
-      try {
-        const url = `${GECKO_API_ROOT}/networks/${network}/pools/${pool}/ohlcv/minute?aggregate=15&limit=24&currency=usd`;
-        const res = await fetch(url, { cache: "no-store" });
-        if (!res.ok) continue;
+    try {
+      const params = new URLSearchParams({
+        pool,
+        aggregate: "15",
+        limit: "24",
+        chainId: String(Number(chainId || 1) || 1)
+      });
+      const res = await fetch(`/api/sparkline?${params.toString()}`, { cache: "no-store" });
+      if (res.ok) {
         const json = await res.json();
-        const rows = json?.data?.attributes?.ohlcv_list;
-        if (!Array.isArray(rows) || rows.length < 2) continue;
-        const closes = rows
-          .map((row) => ({ t: Number(row?.[0] || 0), c: Number(row?.[4] || 0) }))
-          .filter((row) => Number.isFinite(row.t) && row.t > 0 && Number.isFinite(row.c) && row.c > 0)
-          .sort((a, b) => a.t - b.t)
-          .map((row) => row.c);
-        if (closes.length < 2) continue;
-        const path = buildSparklinePath(closes);
-        if (!path) continue;
+        const path = String(json?.path || "");
         sparklineCache.set(key, path);
         return path;
-      } catch {
-        // try next network alias
       }
+    } catch {
+      // fallback below
     }
     sparklineCache.set(key, "");
     return "";

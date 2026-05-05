@@ -21,8 +21,7 @@ import {
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
 import { initCoinSearchOverlay } from "./searchModal.js?v=20260504e";
 
-const MIN_INITIAL_LIQUIDITY_ETH = 0.5;
-const PLATFORM_TEST_MIN_LIQUIDITY_ETH = 0.0001;
+const MIN_INITIAL_LIQUIDITY_ETH = 0.001;
 
 const ui = {
   walletSelect: document.getElementById("walletChoice"),
@@ -126,15 +125,9 @@ function followerMetaText(count) {
   return `${numeric} ${numeric === 1 ? "follower" : "followers"}`;
 }
 
-function isPlatformCreatorAddress(address = "") {
-  const connected = String(address || "").trim().toLowerCase();
-  if (!connected) return false;
-  const platformFromConfig = String(state.config?.deployment?.platformFeeRecipient || "").trim().toLowerCase();
-  return Boolean(platformFromConfig) && connected === platformFromConfig;
-}
-
 function requiredMinLiquidityEth(address = walletState().address) {
-  return isPlatformCreatorAddress(address) ? PLATFORM_TEST_MIN_LIQUIDITY_ETH : MIN_INITIAL_LIQUIDITY_ETH;
+  void address;
+  return MIN_INITIAL_LIQUIDITY_ETH;
 }
 
 function syncLiquidityInputMin() {
@@ -494,11 +487,10 @@ function updateLaunchMath({ source = "liquidity" } = {}) {
     ui.launchMathPrimary.textContent = `Estimated launch market cap: ${formatUsd(economics.marketCapUsd)} (~${economics.marketCapEth.toFixed(4)} ETH)`;
   }
   if (ui.launchMathSecondary) {
-    const platformTag = isPlatformCreatorAddress(walletState().address) ? " (platform test wallet)" : "";
-    ui.launchMathSecondary.textContent = `Minimum launch liquidity: ${economics.minLiquidityEth.toFixed(4)} ETH${platformTag}`;
+    ui.launchMathSecondary.textContent = `Minimum launch liquidity: ${economics.minLiquidityEth.toFixed(4)} ETH`;
   }
   if (ui.launchMathTertiary) {
-    ui.launchMathTertiary.textContent = `Minimum launch market cap at ${economics.minLiquidityEth.toFixed(4)} ETH: ${formatUsd(economics.minTargetMcapUsd)}`;
+    ui.launchMathTertiary.textContent = `Estimated market cap at minimum liquidity: ${formatUsd(economics.minTargetMcapUsd)}`;
   }
   if (ui.launchMathQuaternary) {
     ui.launchMathQuaternary.textContent = `At your settings, 1 ETH liquidity ~ ${formatUsd(economics.oneEthMcapUsd)} market cap`;

@@ -299,7 +299,7 @@
                 </div>
                 <label>
                   Initial Uniswap liquidity (ETH)
-                  <input id="devBuyEth" type="number" step="any" min="0.5" placeholder="0.5" value="0.5" />
+                  <input id="devBuyEth" type="number" step="any" min="0.001" placeholder="0.001" value="0.001" />
                 </label>
                 <label>
                   Target launch market cap (USD)
@@ -307,8 +307,8 @@
                 </label>
                 <div class="create-launch-math" id="launchMathCard">
                   <p id="launchMathPrimary">Estimated launch market cap: $0</p>
-                  <p id="launchMathSecondary">Minimum launch market cap: $2K</p>
-                  <p id="launchMathTertiary">Required liquidity for minimum: -</p>
+                  <p id="launchMathSecondary">Minimum launch liquidity: 0.001 ETH</p>
+                  <p id="launchMathTertiary">Estimated market cap at minimum liquidity: -</p>
                   <p id="launchMathQuaternary">At your settings, 1 ETH liquidity ≈ - market cap</p>
                 </div>
                 <label>
@@ -415,7 +415,7 @@
     </div>
 
     <script src="/js/sidebar.js?v=20260425n"></script>
-    <script type="module" src="/js/create.js?v=20260504k"></script>
+    <script type="module" src="/js/create.js?v=20260505a"></script>
   </body>
 </html>
 

@@ -9,6 +9,38 @@ const sparklineCache = new Map();
 const sparklineInflight = new Map();
 const ETH_ADDRESS_REGEX = /^0x[a-fA-F0-9]{40}$/;
 
+function hashSeed(input = "") {
+  let h = 2166136261 >>> 0;
+  const str = String(input || "");
+  for (let i = 0; i < str.length; i++) {
+    h ^= str.charCodeAt(i);
+    h = Math.imul(h, 16777619);
+  }
+  return h >>> 0;
+}
+
+export function makeFallbackSparklinePath(seed = "") {
+  let r = hashSeed(seed) || 1;
+  const rnd = () => {
+    r = (Math.imul(r, 1664525) + 1013904223) >>> 0;
+    return (r & 0xffff) / 0xffff;
+  };
+
+  const points = 9;
+  const width = 112;
+  const minY = 12;
+  const maxY = 27;
+  let y = 20 + (rnd() - 0.5) * 2.8;
+  const coords = [];
+  for (let i = 0; i < points; i++) {
+    const x = (i / (points - 1)) * width;
+    const drift = (rnd() - 0.5) * 6.8;
+    y = Math.max(minY, Math.min(maxY, y + drift));
+    coords.push([x, y]);
+  }
+  return coords.map(([x, yy], idx) => `${idx === 0 ? "M" : "L"}${x.toFixed(2)} ${yy.toFixed(2)}`).join(" ");
+}
+
 function readList(key) {
   try {
     const parsed = JSON.parse(localStorage.getItem(key) || "[]");
@@ -136,7 +168,8 @@ function getChainId(launches = []) {
 
 async function fetchSparklinePath(launch, chainId) {
   const pool = getPoolAddress(launch);
-  if (!pool) return "";
+  const fallbackSeed = `${Number(chainId || 1)}:${String(launch?.token || "").toLowerCase()}:${String(pool || "").toLowerCase()}`;
+  if (!pool) return makeFallbackSparklinePath(fallbackSeed);
   const key = `${Number(chainId || 0)}:${pool.toLowerCase()}`;
   if (sparklineCache.has(key)) return sparklineCache.get(key);
   if (sparklineInflight.has(key)) return sparklineInflight.get(key);
@@ -153,14 +186,17 @@ async function fetchSparklinePath(launch, chainId) {
       if (res.ok) {
         const json = await res.json();
         const path = String(json?.path || "");
-        sparklineCache.set(key, path);
-        return path;
+        if (path) {
+          sparklineCache.set(key, path);
+          return path;
+        }
       }
     } catch {
       // fallback below
     }
-    sparklineCache.set(key, "");
-    return "";
+    const fallback = makeFallbackSparklinePath(fallbackSeed);
+    sparklineCache.set(key, fallback);
+    return fallback;
   })().finally(() => {
     sparklineInflight.delete(key);
   });

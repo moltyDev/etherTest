@@ -17,7 +17,7 @@ import {
   weiToUsd
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert } from "./ui.js";
-import { getLaunchSparklinePath, initCoinSearchOverlay } from "./searchModal.js?v=20260504e";
+import { getLaunchSparklinePath, initCoinSearchOverlay } from "./searchModal.js?v=20260505a";
 
 const WATCHLIST_KEY = "etherpump.watchlist.v1";
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;

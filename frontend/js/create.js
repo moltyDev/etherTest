@@ -19,7 +19,7 @@ import {
   walletState
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
-import { initCoinSearchOverlay } from "./searchModal.js?v=20260504e";
+import { initCoinSearchOverlay } from "./searchModal.js?v=20260505a";
 
 const MIN_INITIAL_LIQUIDITY_ETH = 0.001;
 

@@ -768,17 +768,27 @@ function setupInteractions() {
 }
 
 async function refreshLaunches() {
-  const launchesRes = await api.launches(80, 0);
+  const launchesRes = await api.launches(36, 0);
   state.launches = launchesRes.launches || [];
   updateMoverSignals(state.launches);
-  const ws = walletState();
-  if (ws.address) {
-    await hydrateUserProfile(ws.address, { force: true });
-  }
-  const creators = [...new Set(state.launches.map((launch) => String(launch?.creator || "").trim()).filter(Boolean))];
-  await hydrateUserProfiles(creators, { force: false });
   renderTrending();
   renderExplore();
+
+  const ws = walletState();
+  if (ws.address) {
+    hydrateUserProfile(ws.address, { force: false }).catch(() => {
+      // ignore self-profile hydration failures
+    });
+  }
+  const creators = [...new Set(state.launches.map((launch) => String(launch?.creator || "").trim()).filter(Boolean))];
+  hydrateUserProfiles(creators, { force: false })
+    .then(() => {
+      renderTrending();
+      renderExplore();
+    })
+    .catch(() => {
+      // keep already-rendered content
+    });
 }
 
 async function refreshEthUsd(force = false) {
@@ -885,7 +895,7 @@ async function init() {
     refreshLaunches().catch(() => {
       // ignore transient polling failures
     });
-  }, 5000);
+  }, 12000);
 
   setInterval(() => {
     refreshEthUsd(true)

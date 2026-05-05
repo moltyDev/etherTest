@@ -61,17 +61,17 @@ if (USE_DISK_UPLOADS && !fs.existsSync(UPLOADS_DIR)) {
 
 const contextCache = new Map();
 
-const LAUNCHES_CACHE_TTL_MS = 2_500;
-const POOL_SNAPSHOT_CACHE_TTL_MS = 1_500;
-const STATS_CACHE_TTL_MS = 6_000;
-const TOKEN_CACHE_TTL_MS = 1_500;
-const PROFILE_CACHE_TTL_MS = 4_000;
-const PROFILE_SOCIAL_CACHE_TTL_MS = 10_000;
-const PARTICIPANTS_CACHE_TTL_MS = 10_000;
-const GECKO_POOL_CACHE_TTL_MS = 5_000;
-const GECKO_TRADES_CACHE_TTL_MS = 3_000;
+const LAUNCHES_CACHE_TTL_MS = 12_000;
+const POOL_SNAPSHOT_CACHE_TTL_MS = 10_000;
+const STATS_CACHE_TTL_MS = 20_000;
+const TOKEN_CACHE_TTL_MS = 6_000;
+const PROFILE_CACHE_TTL_MS = 15_000;
+const PROFILE_SOCIAL_CACHE_TTL_MS = 45_000;
+const PARTICIPANTS_CACHE_TTL_MS = 30_000;
+const GECKO_POOL_CACHE_TTL_MS = 15_000;
+const GECKO_TRADES_CACHE_TTL_MS = 10_000;
 const GECKO_SPARKLINE_CACHE_TTL_MS = 45_000;
-const DEX_TOKEN_CACHE_TTL_MS = 4_000;
+const DEX_TOKEN_CACHE_TTL_MS = 12_000;
 const MAX_LAUNCH_READ_CONCURRENCY = 8;
 const MAX_BALANCE_READ_CONCURRENCY = 10;
 const MAX_SOCIAL_POOL_CONCURRENCY = 3;
@@ -2181,6 +2181,30 @@ async function readLaunchList(ctx) {
   });
 }
 
+async function readLaunchPage(ctx, limit, offset) {
+  const count = Number(await ctx.factory.getLaunchCount());
+  const total = Number.isFinite(count) && count > 0 ? count : 0;
+  if (!total) {
+    return { total: 0, launches: [] };
+  }
+
+  const safeLimit = Math.max(1, Math.min(120, Number(limit || 20)));
+  const safeOffset = Math.max(0, Number(offset || 0));
+  const start = total - 1 - safeOffset;
+  if (start < 0) {
+    return { total, launches: [] };
+  }
+
+  const end = Math.max(0, start - safeLimit + 1);
+  const ids = [];
+  for (let id = start; id >= end; id--) {
+    ids.push(id);
+  }
+
+  const launches = await mapWithConcurrency(ids, MAX_LAUNCH_READ_CONCURRENCY, async (id) => readLaunch(ctx.factory, id));
+  return { total, launches };
+}
+
 async function findLaunchByToken(factory, tokenAddress) {
   const count = Number(await factory.getLaunchCount());
   for (let i = count - 1; i >= 0; i--) {
@@ -2242,20 +2266,21 @@ app.get("/api/launches", async (req, res) => {
     const ctx = await getContext(requestedChainId);
     const launchesKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${limit}:${offset}`;
     const payload = await withCache(launchesCache, launchesKey, LAUNCHES_CACHE_TTL_MS, async () => {
-      const launchList = await readLaunchList(ctx);
-      const total = launchList.length;
-      const sliced = launchList.slice(offset, offset + limit);
-      const launches = await mapWithConcurrency(sliced, MAX_LAUNCH_READ_CONCURRENCY, async (launch) => {
+      const page = await readLaunchPage(ctx, limit, offset);
+      const creatorAddresses = [...new Set(page.launches.map((launch) => String(launch?.creator || "").toLowerCase()).filter(Boolean))];
+      const creatorProfiles = await getPersistedProfiles(creatorAddresses);
+
+      const launches = await mapWithConcurrency(page.launches, MAX_LAUNCH_READ_CONCURRENCY, async (launch) => {
         const pool = await readPoolSnapshot(ctx.provider, launch);
         return {
           ...launch,
           tokenAddress: launch.token,
           poolAddress: launch.pool,
-          creatorProfile: await getPersistedProfile(launch.creator),
+          creatorProfile: creatorProfiles[String(launch.creator || "").toLowerCase()] || null,
           pool
         };
       });
-      return { total, launches };
+      return { total: page.total, launches };
     });
 
     res.json(payload);

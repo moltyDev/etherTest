@@ -25,9 +25,11 @@ const SUPABASE_SERVICE_ROLE_KEY = String(
 const SUPABASE_PROFILE_TABLE = String(process.env.SUPABASE_PROFILE_TABLE || "user_profiles").trim();
 const SUPABASE_FOLLOW_TABLE = String(process.env.SUPABASE_FOLLOW_TABLE || "user_follows").trim();
 const SUPABASE_SCHEMA = String(process.env.SUPABASE_SCHEMA || "public").trim();
+const SUPABASE_STORAGE_BUCKET = String(process.env.SUPABASE_STORAGE_BUCKET || "uploads").trim();
 const PROFILE_IMAGE_URI_MAX_LENGTH = 2 * 1024 * 1024;
 const STRICT_PROFILE_STORE = String(process.env.STRICT_PROFILE_STORE || (IS_VERCEL_RUNTIME ? "1" : "0")) === "1";
 const STRICT_SOCIAL_STORE = String(process.env.STRICT_SOCIAL_STORE || (STRICT_PROFILE_STORE ? "1" : "0")) === "1";
+const STRICT_UPLOAD_STORE = String(process.env.STRICT_UPLOAD_STORE || (IS_VERCEL_RUNTIME ? "1" : "0")) === "1";
 // Vercel runtime filesystem is ephemeral/read-only for project paths. Force inline mode there.
 const USE_DISK_UPLOADS = !IS_VERCEL_RUNTIME && UPLOAD_MODE !== "inline";
 
@@ -531,6 +533,53 @@ function getSupabaseRestUrl(relativePath, query = null) {
     }
   }
   return url.toString();
+}
+
+function isSupabaseStorageConfigured() {
+  return Boolean(SUPABASE_URL && SUPABASE_SERVICE_ROLE_KEY && SUPABASE_STORAGE_BUCKET);
+}
+
+function getSupabaseStorageUploadUrl(objectPath) {
+  const base = SUPABASE_URL.replace(/\/+$/, "");
+  const safePath = String(objectPath || "")
+    .split("/")
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+  return `${base}/storage/v1/object/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${safePath}`;
+}
+
+function getSupabaseStoragePublicUrl(objectPath) {
+  const base = SUPABASE_URL.replace(/\/+$/, "");
+  const safePath = String(objectPath || "")
+    .split("/")
+    .map((seg) => encodeURIComponent(seg))
+    .join("/");
+  return `${base}/storage/v1/object/public/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${safePath}`;
+}
+
+async function uploadImageToSupabaseStorage(binary, ext = "png") {
+  if (!isSupabaseStorageConfigured()) {
+    return "";
+  }
+  const cleanExt = String(ext || "png").toLowerCase().replace(/[^a-z0-9]/g, "") || "png";
+  const objectPath = `launches/${Date.now()}-${Math.random().toString(16).slice(2, 10)}.${cleanExt}`;
+  const contentType = cleanExt === "jpg" ? "image/jpeg" : `image/${cleanExt}`;
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    "Content-Type": contentType,
+    "x-upsert": "true"
+  };
+  const response = await fetch(getSupabaseStorageUploadUrl(objectPath), {
+    method: "POST",
+    headers,
+    body: binary
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error(`Supabase storage upload failed: ${response.status} ${text}`.trim());
+  }
+  return getSupabaseStoragePublicUrl(objectPath);
 }
 
 async function supabaseRequest(relativePath, { method = "GET", query = null, body = null, prefer = "" } = {}) {
@@ -2216,7 +2265,23 @@ app.post("/api/upload-image", async (req, res) => {
       return res.status(400).json({ error: "Image must be between 1 byte and 1 MB" });
     }
 
+    if (isSupabaseStorageConfigured()) {
+      try {
+        const storageUrl = await uploadImageToSupabaseStorage(binary, ext);
+        if (storageUrl) {
+          return res.json({ url: storageUrl });
+        }
+      } catch (uploadError) {
+        if (STRICT_UPLOAD_STORE) {
+          throw uploadError;
+        }
+      }
+    }
+
     if (!USE_DISK_UPLOADS) {
+      if (STRICT_UPLOAD_STORE) {
+        return res.status(500).json({ error: "Image storage is not configured on this deployment" });
+      }
       return res.json({ url: dataUrl });
     }
 
@@ -2337,9 +2402,9 @@ app.get("/api/stats", async (req, res) => {
   }
 });
 
-app.get("/api/token/:token", async (req, res) => {
+async function handleTokenRequest(req, res, tokenCandidate) {
   try {
-    const tokenAddress = normalizeAddress(req.params.token);
+    const tokenAddress = normalizeAddress(tokenCandidate);
     if (!tokenAddress) {
       return res.status(400).json({ error: "Invalid token address" });
     }
@@ -2517,6 +2582,14 @@ app.get("/api/token/:token", async (req, res) => {
   } catch (error) {
     res.status(500).json({ error: error.message });
   }
+}
+
+app.get("/api/token", async (req, res) => {
+  return handleTokenRequest(req, res, req.query?.token);
+});
+
+app.get("/api/token/:token", async (req, res) => {
+  return handleTokenRequest(req, res, req.params?.token);
 });
 
 app.get("/api/profile/:address", async (req, res) => {
@@ -2650,7 +2723,27 @@ app.get("/profile", (_req, res) => {
   res.sendFile(path.join(FRONTEND_DIR, "profile.html"));
 });
 
-app.use(express.static(FRONTEND_DIR));
+app.use(
+  express.static(FRONTEND_DIR, {
+    etag: false,
+    lastModified: false,
+    setHeaders: (res, filePath) => {
+      const lower = String(filePath || "").toLowerCase();
+      if (
+        lower.endsWith(".html") ||
+        lower.endsWith(".js") ||
+        lower.endsWith(".css") ||
+        lower.endsWith(".json")
+      ) {
+        res.setHeader("Cache-Control", "no-store, no-cache, must-revalidate, proxy-revalidate");
+        res.setHeader("Pragma", "no-cache");
+        res.setHeader("Expires", "0");
+      } else {
+        res.setHeader("Cache-Control", "public, max-age=300");
+      }
+    }
+  })
+);
 
 app.use((err, _req, res, _next) => {
   res.status(500).json({ error: err.message || "Unexpected server error" });

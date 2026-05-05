@@ -557,6 +557,34 @@ function getSupabaseStoragePublicUrl(objectPath) {
   return `${base}/storage/v1/object/public/${encodeURIComponent(SUPABASE_STORAGE_BUCKET)}/${safePath}`;
 }
 
+async function ensureSupabaseStorageBucket() {
+  if (!isSupabaseStorageConfigured()) return false;
+  const base = SUPABASE_URL.replace(/\/+$/, "");
+  const url = `${base}/storage/v1/bucket`;
+  const headers = {
+    apikey: SUPABASE_SERVICE_ROLE_KEY,
+    Authorization: `Bearer ${SUPABASE_SERVICE_ROLE_KEY}`,
+    "Content-Type": "application/json"
+  };
+
+  const createRes = await fetch(url, {
+    method: "POST",
+    headers,
+    body: JSON.stringify({
+      name: SUPABASE_STORAGE_BUCKET,
+      public: true,
+      file_size_limit: 1_048_576
+    })
+  });
+
+  if (createRes.ok) return true;
+  if (createRes.status === 409) return true;
+
+  const text = await createRes.text().catch(() => "");
+  if (String(text || "").toLowerCase().includes("already exists")) return true;
+  throw new Error(`Supabase bucket create failed: ${createRes.status} ${text}`.trim());
+}
+
 async function uploadImageToSupabaseStorage(binary, ext = "png") {
   if (!isSupabaseStorageConfigured()) {
     return "";
@@ -570,14 +598,27 @@ async function uploadImageToSupabaseStorage(binary, ext = "png") {
     "Content-Type": contentType,
     "x-upsert": "true"
   };
-  const response = await fetch(getSupabaseStorageUploadUrl(objectPath), {
+  let response = await fetch(getSupabaseStorageUploadUrl(objectPath), {
     method: "POST",
     headers,
     body: binary
   });
   if (!response.ok) {
     const text = await response.text().catch(() => "");
-    throw new Error(`Supabase storage upload failed: ${response.status} ${text}`.trim());
+    const lowered = String(text || "").toLowerCase();
+    const bucketMissing = response.status === 400 && lowered.includes("bucket not found");
+    if (bucketMissing) {
+      await ensureSupabaseStorageBucket();
+      response = await fetch(getSupabaseStorageUploadUrl(objectPath), {
+        method: "POST",
+        headers,
+        body: binary
+      });
+    }
+    if (!response.ok) {
+      const retryText = await response.text().catch(() => "");
+      throw new Error(`Supabase storage upload failed: ${response.status} ${retryText || text}`.trim());
+    }
   }
   return getSupabaseStoragePublicUrl(objectPath);
 }

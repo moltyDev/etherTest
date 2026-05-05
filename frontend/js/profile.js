@@ -23,6 +23,7 @@ import {
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
 import { initCoinSearchOverlay } from "./searchModal.js?v=20260505a";
+import { initSupportWidget } from "./support.js";
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;
 const CLAIM_MIN_USD = 8;
@@ -98,6 +99,7 @@ const state = {
   activeTab: "balances",
   ethUsd: 3000,
   chainId: 1,
+  supportConfig: null,
   socialLoaded: false,
   socialLoading: false,
   isFollowingProfile: false,
@@ -746,6 +748,102 @@ function renderCreatorRewardsTab(payload) {
   `;
 }
 
+async function ensureSupportConfig() {
+  if (state.supportConfig) return state.supportConfig;
+  try {
+    state.supportConfig = await api.supportConfig();
+  } catch {
+    state.supportConfig = { platformAddress: "" };
+  }
+  return state.supportConfig;
+}
+
+function renderNotificationsList(messages = [], inboxMode = false) {
+  if (!messages.length) {
+    return `<p class="muted">No support messages yet.</p>`;
+  }
+
+  const rows = messages
+    .map((row) => {
+      const fromAddress = normalizeAddress(row?.fromAddress || "");
+      const fromName = fromAddress ? (loadUserProfile(fromAddress).username || defaultUsername(fromAddress)) : "User";
+      const tokenAddress = normalizeAddress(row?.tokenAddress || "");
+      const label = inboxMode ? `From ${fromName}` : `To support`;
+      return `
+        <article class="profile-follow-row">
+          <div class="profile-follow-meta">
+            <strong>${escapeHtml(row?.subject || "Support request")}</strong>
+            <span>${escapeHtml(label)} · ${escapeHtml(humanAgo(row?.createdAt || 0))}</span>
+            <span>${escapeHtml(String(row?.body || ""))}</span>
+            ${
+              tokenAddress
+                ? `<a class="profile-inline-link" href="/token?token=${tokenAddress}">Token ${escapeHtml(shortAddress(tokenAddress))}</a>`
+                : ""
+            }
+          </div>
+        </article>
+      `;
+    })
+    .join("");
+
+  return `<div class="profile-follow-list">${rows}</div>`;
+}
+
+async function loadNotificationsTab() {
+  if (!ui.profileTabContent) return;
+  ui.profileTabContent.innerHTML = `<p class="muted">Loading notifications...</p>`;
+
+  const target = normalizeAddress(state.address || state.payload?.address || "");
+  if (!target) {
+    ui.profileTabContent.innerHTML = `<p class="muted">Load a profile to view notifications.</p>`;
+    return;
+  }
+
+  const viewer = connectedAddress();
+  const cfg = await ensureSupportConfig();
+  const platformAddress = normalizeAddress(cfg?.platformAddress || "");
+  const isPlatformProfile = Boolean(platformAddress && target.toLowerCase() === platformAddress.toLowerCase());
+  const viewingOwn = Boolean(viewer && viewer.toLowerCase() === target.toLowerCase());
+  const canViewInbox = isPlatformProfile && viewingOwn;
+
+  if (!viewingOwn && !canViewInbox) {
+    ui.profileTabContent.innerHTML = `<p class="muted">Notifications are private to the profile owner.</p>`;
+    return;
+  }
+
+  try {
+    let messages = [];
+    if (canViewInbox) {
+      const payload = await api.supportInbox(target);
+      messages = Array.isArray(payload?.messages) ? payload.messages : [];
+      ui.profileTabContent.innerHTML = `
+        <section class="profile-reward-summary-grid">
+          <article class="profile-reward-summary-card">
+            <small>Support inbox</small>
+            <strong>${messages.length}</strong>
+          </article>
+        </section>
+        ${renderNotificationsList(messages, true)}
+      `;
+      return;
+    }
+
+    const payload = await api.supportMessages(target);
+    messages = Array.isArray(payload?.messages) ? payload.messages : [];
+    ui.profileTabContent.innerHTML = `
+      <section class="profile-reward-summary-grid">
+        <article class="profile-reward-summary-card">
+          <small>Your support messages</small>
+          <strong>${messages.length}</strong>
+        </article>
+      </section>
+      ${renderNotificationsList(messages, false)}
+    `;
+  } catch (error) {
+    ui.profileTabContent.innerHTML = `<p class="muted">${escapeHtml(String(error?.message || "Failed to load notifications"))}</p>`;
+  }
+}
+
 function renderActiveTab() {
   const payload = state.payload;
   if (!payload) {
@@ -769,7 +867,9 @@ function renderActiveTab() {
     ui.profileTabContent.innerHTML = renderCreatorRewardsTab(payload);
     return;
   }
-  ui.profileTabContent.innerHTML = `<p class="muted">No notifications yet.</p>`;
+  loadNotificationsTab().catch(() => {
+    ui.profileTabContent.innerHTML = `<p class="muted">Could not load notifications.</p>`;
+  });
 }
 
 function updateTabButtons() {
@@ -1197,6 +1297,7 @@ async function init() {
 
   setupProfileMenu();
   setupEditProfileModal();
+  initSupportWidget({ alertEl: ui.alert });
   setupAddressControls();
   setupFollowButton();
   initCoinSearchOverlay({ triggerInputs: [ui.profileAddressInput] });

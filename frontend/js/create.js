@@ -20,6 +20,7 @@ import {
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
 import { initCoinSearchOverlay } from "./searchModal.js?v=20260505a";
+import { initSupportWidget } from "./support.js";
 
 const MIN_INITIAL_LIQUIDITY_ETH = 0.001;
 
@@ -901,6 +902,7 @@ async function init() {
 
   setupProfileMenu();
   setupEditProfileModal();
+  initSupportWidget({ alertEl: ui.alert });
   setupFormEnhancements();
   setupCreatedModal();
   initCoinSearchOverlay({ triggerInputs: [ui.tokenSearchInput] });

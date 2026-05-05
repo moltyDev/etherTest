@@ -8,6 +8,7 @@ import {
   hydrateUserProfiles,
   loadCachedFollowerCount,
   loadUserProfile,
+  makeFallbackImage,
   parseUiError,
   resolveCoinImage,
   saveUserProfile,
@@ -18,6 +19,7 @@ import {
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert } from "./ui.js";
 import { getLaunchSparklinePath, initCoinSearchOverlay } from "./searchModal.js?v=20260505a";
+import { initSupportWidget } from "./support.js";
 
 const WATCHLIST_KEY = "etherpump.watchlist.v1";
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;
@@ -258,6 +260,52 @@ function addLaunchMetrics(launch) {
   };
 }
 
+function addTrendingMetrics(launch) {
+  const dex = launch?.dexSnapshot || launch?.dex || {};
+  const createdSec = Number(launch?.metrics?.createdSec || launch?.createdAt || 0);
+  const ageHours = Math.max(0, (Date.now() - createdSec * 1000) / 3_600_000);
+  const marketCapUsd = Math.max(
+    0,
+    Number(dex?.marketCapUsd || 0) || weiToUsd(launch?.pool?.marketCapWei || "0", state.ethUsd)
+  );
+  const volume24hUsd = Math.max(0, Number(dex?.volume24hUsd || 0));
+  const liquidityUsd = Math.max(0, Number(dex?.liquidityUsd || 0));
+  const priceChange24hPct = Number(dex?.priceChange24hPct || 0);
+  const momentumPct = Number(launch?.metrics?.momentumPct || 0);
+  const velocityEthPerSec = Number(launch?.metrics?.velocityEthPerSec || 0);
+
+  // Pump-like trending signal: activity first (volume/liquidity), then momentum, then size, with recency decay.
+  const volumeScore = Math.log10(1 + volume24hUsd) * 24;
+  const liquidityScore = Math.log10(1 + liquidityUsd) * 16;
+  const capScore = Math.log10(1 + marketCapUsd) * 8;
+  const momentumScore =
+    Math.max(-30, Math.min(30, priceChange24hPct)) * 1.1 +
+    Math.max(-22, Math.min(22, momentumPct)) * 1.4 +
+    Math.min(18, Math.abs(velocityEthPerSec) * 12000);
+  const recencyScore = Math.max(0, 26 - ageHours * 0.85);
+
+  const trendingScore = volumeScore + liquidityScore + capScore + momentumScore + recencyScore;
+  const qualifies =
+    volume24hUsd >= 50 ||
+    liquidityUsd >= 200 ||
+    marketCapUsd >= 750 ||
+    Math.abs(momentumPct) >= 0.45 ||
+    ageHours <= 2.5;
+
+  return {
+    ...launch,
+    trending: {
+      marketCapUsd,
+      volume24hUsd,
+      liquidityUsd,
+      priceChange24hPct,
+      ageHours,
+      score: trendingScore,
+      qualifies
+    }
+  };
+}
+
 function updateMoverSignals(launches = []) {
   const now = Date.now();
   const active = new Set();
@@ -370,6 +418,17 @@ function getTrendingSparkKey(launch) {
   return `trend:${getExploreSparkKey(launch)}`;
 }
 
+function isPepeToken(launch) {
+  const name = String(launch?.name || "").toLowerCase();
+  const symbol = String(launch?.symbol || "").toLowerCase();
+  return name.includes("pepe") || symbol.includes("pepe");
+}
+
+function cardFallbackImage(launch) {
+  if (isPepeToken(launch)) return "/assets/pepe-card.jpg?v=20260505a";
+  return makeFallbackImage(launch?.name || "", launch?.symbol || "");
+}
+
 async function hydrateExploreSparklines(items = []) {
   if (!Array.isArray(items) || !items.length) return;
   const nodes = Array.from(document.querySelectorAll("[data-explore-spark]"));
@@ -414,13 +473,14 @@ async function hydrateTrendingSparklines(items = []) {
 
 function buildExploreCard(launch) {
   const image = resolveCoinImage(launch);
+  const fallback = cardFallbackImage(launch);
   const watched = isWatched(launch);
   const sparkKey = getExploreSparkKey(launch);
   return `
     <article class="coin-card">
       <div class="coin-image-wrap">
         <a href="/token?token=${launch.token}" class="coin-image-link">
-          <img class="coin-image" src="${image}" alt="${launch.symbol} logo" />
+          <img class="coin-image" src="${image}" alt="${launch.symbol} logo" onerror="this.onerror=null;this.src='${escapeHtml(fallback)}';" />
           <span class="coin-image-spark" data-explore-spark="${sparkKey}" aria-hidden="true"></span>
         </a>
         <span class="coin-badge">Uniswap</span>
@@ -446,12 +506,13 @@ function buildExploreCard(launch) {
 
 function buildTrendingCard(launch) {
   const image = resolveCoinImage(launch);
+  const fallback = cardFallbackImage(launch);
   const createdLabel = humanAgo(launch.createdAt);
   const sparkKey = getTrendingSparkKey(launch);
   return `
     <article class="trend-item">
       <a href="/token?token=${launch.token}" class="trend-media-link">
-        <img src="${image}" alt="${launch.symbol} logo" />
+        <img src="${image}" alt="${launch.symbol} logo" onerror="this.onerror=null;this.src='${escapeHtml(fallback)}';" />
         <span class="trend-image-spark" data-trending-spark="${sparkKey}" aria-hidden="true"></span>
         <div class="trend-overlay">
           <strong>${formatLaunchMarketCap(launch)}</strong>
@@ -469,7 +530,11 @@ function buildTrendingCard(launch) {
 }
 
 function renderTrending() {
-  const items = state.launches.map(addLaunchMetrics).sort((a, b) => b.metrics.moverScore - a.metrics.moverScore).slice(0, 8);
+  const ranked = state.launches.map(addLaunchMetrics).map(addTrendingMetrics).sort((a, b) => (b?.trending?.score || 0) - (a?.trending?.score || 0));
+  const qualified = ranked.filter((row) => Boolean(row?.trending?.qualifies));
+  const base = qualified.length ? qualified : ranked;
+  const targetCount = Math.min(8, Math.max(3, Math.ceil(base.length * 0.45)));
+  const items = base.slice(0, targetCount);
   if (!items.length) {
     ui.trendingWrap.innerHTML = `<article class="panel-card"><p class="muted">No launches yet.</p></article>`;
     return;
@@ -872,6 +937,7 @@ async function init() {
   setActiveFilterButton();
   setupProfileMenu();
   setupEditProfileModal();
+  initSupportWidget({ alertEl: ui.alert });
   setupTrendingNav();
   setupInteractions();
   initCoinSearchOverlay({ triggerInputs: [ui.searchInput] });

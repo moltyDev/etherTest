@@ -73,5 +73,9 @@ export const api = {
       target,
       follow: Boolean(follow)
     }),
+  supportConfig: () => apiGet("/api/support/config"),
+  supportMessages: (address) => apiGet(`/api/support/messages?address=${encodeURIComponent(String(address || ""))}`),
+  supportInbox: (address) => apiGet(`/api/support/inbox?address=${encodeURIComponent(String(address || ""))}`),
+  sendSupportMessage: (body = {}) => apiPost("/api/support/message", body),
   uploadImage: (dataUrl) => apiPost("/api/upload-image", { dataUrl })
 };

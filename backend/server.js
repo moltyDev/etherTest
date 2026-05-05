@@ -18,6 +18,7 @@ const IS_VERCEL_RUNTIME = Boolean(process.env.VERCEL);
 const UPLOAD_MODE = String(process.env.UPLOAD_MODE || (IS_VERCEL_RUNTIME ? "inline" : "disk")).toLowerCase();
 const PROFILE_DB_PATH = IS_VERCEL_RUNTIME ? path.join("/tmp", "etherpump-profiles.json") : path.join(ROOT, "cache", "profiles.json");
 const FOLLOW_DB_PATH = IS_VERCEL_RUNTIME ? path.join("/tmp", "etherpump-follows.json") : path.join(ROOT, "cache", "follows.json");
+const SUPPORT_DB_PATH = IS_VERCEL_RUNTIME ? path.join("/tmp", "etherpump-support.json") : path.join(ROOT, "cache", "support.json");
 const SUPABASE_URL = String(process.env.SUPABASE_URL || process.env.NEXT_PUBLIC_SUPABASE_URL || "").trim();
 const SUPABASE_SERVICE_ROLE_KEY = String(
   process.env.SUPABASE_SERVICE_ROLE_KEY || process.env.SUPABASE_SECRET_KEY || ""
@@ -108,7 +109,50 @@ const geckoIndexedSticky = new Set();
 const pairTradesCache = new Map();
 let profileDbCache = null;
 let followDbCache = null;
+let supportDbCache = null;
 const profileLastKnownCache = new Map();
+
+function resolvePlatformSupportAddress() {
+  const candidates = [
+    process.env.SUPPORT_WALLET,
+    process.env.PLATFORM_FEE_RECIPIENT,
+    process.env.FEE_RECIPIENT
+  ];
+  for (const candidate of candidates) {
+    const normalized = normalizeAddress(candidate || "");
+    if (normalized) return normalized;
+  }
+  return null;
+}
+
+function supportHelpCollections() {
+  return [
+    {
+      key: "creating",
+      title: "Creating and Managing Coins",
+      description: "Token setup, launch flow, and post-launch management.",
+      articles: 4
+    },
+    {
+      key: "wallet",
+      title: "Managing Your Wallet",
+      description: "Connecting wallets, balances, and common wallet issues.",
+      articles: 3
+    },
+    {
+      key: "fees",
+      title: "Tokenomics & Fees",
+      description: "Launch fee, creator rewards, and platform fee details.",
+      articles: 4
+    },
+    {
+      key: "trading",
+      title: "Trading & Liquidity",
+      description: "Uniswap pair behavior, slippage, and trade troubleshooting.",
+      articles: 3
+    }
+  ];
+}
 
 function getCachedValue(cache, key) {
   const row = cache.get(key);
@@ -1218,6 +1262,123 @@ async function setFollowState(viewerAddress, targetAddress, follow = true) {
   return getFollowState(viewer, target);
 }
 
+function readSupportDb() {
+  if (supportDbCache && typeof supportDbCache === "object") {
+    return supportDbCache;
+  }
+
+  try {
+    if (fs.existsSync(SUPPORT_DB_PATH)) {
+      const raw = fs.readFileSync(SUPPORT_DB_PATH, "utf8");
+      const parsed = JSON.parse(raw || "{}");
+      if (parsed && typeof parsed === "object" && !Array.isArray(parsed)) {
+        const messages = Array.isArray(parsed.messages) ? parsed.messages : [];
+        supportDbCache = { messages };
+        return supportDbCache;
+      }
+    }
+  } catch {
+    // fall through to empty
+  }
+
+  supportDbCache = { messages: [] };
+  return supportDbCache;
+}
+
+function writeSupportDb(store) {
+  const safe = {
+    messages: Array.isArray(store?.messages) ? store.messages : []
+  };
+  fs.mkdirSync(path.dirname(SUPPORT_DB_PATH), { recursive: true });
+  fs.writeFileSync(SUPPORT_DB_PATH, JSON.stringify(safe, null, 2));
+  supportDbCache = safe;
+}
+
+function normalizeSupportMessage(row = {}) {
+  const id = String(row.id || "").trim();
+  const fromAddress = normalizeAddress(row.fromAddress || row.from || "");
+  const toAddress = normalizeAddress(row.toAddress || row.to || "");
+  const subject = String(row.subject || "").trim().slice(0, 120);
+  const body = String(row.body || "").trim().slice(0, 4000);
+  const category = String(row.category || "").trim().slice(0, 64);
+  const tokenAddress = normalizeAddress(row.tokenAddress || row.token || "");
+  const createdAt = parseUnixTimestamp(row.createdAt || row.created_at || row.ts);
+  if (!id || !fromAddress || !toAddress || !body || createdAt <= 0) return null;
+  return {
+    id,
+    fromAddress,
+    toAddress,
+    subject: subject || "Support request",
+    body,
+    category: category || "general",
+    tokenAddress: tokenAddress || "",
+    status: String(row.status || "open"),
+    createdAt
+  };
+}
+
+function listSupportMessagesForAddress(address) {
+  const normalized = normalizeAddress(address);
+  if (!normalized) return [];
+  const key = normalized.toLowerCase();
+  const store = readSupportDb();
+  const rows = (Array.isArray(store.messages) ? store.messages : [])
+    .map((row) => normalizeSupportMessage(row))
+    .filter(Boolean)
+    .filter((row) => row.fromAddress.toLowerCase() === key || row.toAddress.toLowerCase() === key)
+    .sort((a, b) => b.createdAt - a.createdAt);
+  return rows;
+}
+
+function listSupportInbox(platformAddress) {
+  const normalized = normalizeAddress(platformAddress);
+  if (!normalized) return [];
+  const key = normalized.toLowerCase();
+  const store = readSupportDb();
+  return (Array.isArray(store.messages) ? store.messages : [])
+    .map((row) => normalizeSupportMessage(row))
+    .filter(Boolean)
+    .filter((row) => row.toAddress.toLowerCase() === key)
+    .sort((a, b) => b.createdAt - a.createdAt);
+}
+
+function createSupportMessage(payload = {}) {
+  const fromAddress = normalizeAddress(payload.fromAddress || payload.from || "");
+  const platformAddress = resolvePlatformSupportAddress();
+  if (!fromAddress) throw new Error("fromAddress is required");
+  if (!platformAddress) throw new Error("Support wallet is not configured");
+
+  const body = String(payload.body || "").trim();
+  if (!body) throw new Error("Message body is required");
+  if (body.length > 4000) throw new Error("Message is too long");
+
+  const subjectRaw = String(payload.subject || "").trim();
+  const categoryRaw = String(payload.category || "").trim();
+  const tokenAddress = normalizeAddress(payload.tokenAddress || "");
+
+  const store = readSupportDb();
+  const next = {
+    id: `${Date.now()}-${Math.random().toString(16).slice(2, 10)}`,
+    fromAddress: fromAddress.toLowerCase(),
+    toAddress: platformAddress.toLowerCase(),
+    subject: (subjectRaw || "Support request").slice(0, 120),
+    body: body.slice(0, 4000),
+    category: (categoryRaw || "general").slice(0, 64).toLowerCase(),
+    tokenAddress: tokenAddress ? tokenAddress.toLowerCase() : "",
+    status: "open",
+    createdAt: Math.floor(Date.now() / 1000)
+  };
+  const normalized = normalizeSupportMessage(next);
+  if (!normalized) throw new Error("Failed to create support message");
+  const messages = Array.isArray(store.messages) ? store.messages : [];
+  messages.push(normalized);
+  if (messages.length > 2000) {
+    messages.splice(0, messages.length - 2000);
+  }
+  writeSupportDb({ messages });
+  return normalized;
+}
+
 function clearProfileDependentCaches() {
   launchesCache.clear();
   tokenCache.clear();
@@ -2272,12 +2433,14 @@ app.get("/api/launches", async (req, res) => {
 
       const launches = await mapWithConcurrency(page.launches, MAX_LAUNCH_READ_CONCURRENCY, async (launch) => {
         const pool = await readPoolSnapshot(ctx.provider, launch);
+        const dexSnapshot = await readDexScreenerTokenSnapshot(ctx.chainId, launch.token, pool?.migratedPair || "");
         return {
           ...launch,
           tokenAddress: launch.token,
           poolAddress: launch.pool,
           creatorProfile: creatorProfiles[String(launch.creator || "").toLowerCase()] || null,
-          pool
+          pool,
+          dexSnapshot: dexSnapshot || null
         };
       });
       return { total: page.total, launches };
@@ -2424,6 +2587,61 @@ app.post("/api/follow", async (req, res) => {
     const message = String(error?.message || "Failed to update follow state");
     const status = message.toLowerCase().includes("follow yourself") ? 400 : 500;
     res.status(status).json({ error: message });
+  }
+});
+
+app.get("/api/support/config", async (_req, res) => {
+  try {
+    const platformAddress = resolvePlatformSupportAddress();
+    res.json({
+      platformAddress: platformAddress || "",
+      quickActions: [
+        { key: "coin_details", label: "Coin Details" },
+        { key: "trading_problems", label: "Trading Problems" },
+        { key: "submit_feedback", label: "Submit Feedback" },
+        { key: "speak_to_support", label: "Speak to Support" }
+      ],
+      collections: supportHelpCollections()
+    });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to load support config" });
+  }
+});
+
+app.post("/api/support/message", async (req, res) => {
+  try {
+    const row = createSupportMessage(req.body || {});
+    res.json({ message: row });
+  } catch (error) {
+    const text = String(error?.message || "Failed to send support message");
+    const status = text.toLowerCase().includes("required") ? 400 : 500;
+    res.status(status).json({ error: text });
+  }
+});
+
+app.get("/api/support/messages", async (req, res) => {
+  try {
+    const address = normalizeAddress(req.query.address || "");
+    if (!address) return res.status(400).json({ error: "address is required" });
+    const rows = listSupportMessagesForAddress(address).slice(0, 200);
+    res.json({ messages: rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to load support messages" });
+  }
+});
+
+app.get("/api/support/inbox", async (req, res) => {
+  try {
+    const viewer = normalizeAddress(req.query.address || "");
+    const platformAddress = resolvePlatformSupportAddress();
+    if (!viewer) return res.status(400).json({ error: "address is required" });
+    if (!platformAddress || viewer.toLowerCase() !== platformAddress.toLowerCase()) {
+      return res.status(403).json({ error: "Only platform support wallet can view inbox" });
+    }
+    const rows = listSupportInbox(platformAddress).slice(0, 500);
+    res.json({ messages: rows });
+  } catch (error) {
+    res.status(500).json({ error: error.message || "Failed to load support inbox" });
   }
 });
 

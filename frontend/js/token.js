@@ -25,6 +25,7 @@ import {
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
 import { initCoinSearchOverlay, recordViewedLaunch } from "./searchModal.js?v=20260504e";
+import { initSupportWidget } from "./support.js";
 
 const RANGE_MS = {
   "5m": 5 * 60 * 1000,
@@ -2400,6 +2401,7 @@ async function init() {
   updateProfileIdentity();
   setupProfileMenu();
   setupEditProfileModal();
+  initSupportWidget({ alertEl: ui.alert });
   setupChartControls();
   setupInteractions();
   initCoinSearchOverlay({ triggerInputs: [ui.tokenSearchInput] });

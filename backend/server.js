@@ -2426,11 +2426,12 @@ app.get("/api/launches", async (req, res) => {
   try {
     const limit = Math.max(1, Math.min(60, Number(req.query.limit || 20)));
     const offset = Math.max(0, Number(req.query.offset || 0));
+    const includeDex = String(req.query.includeDex || "0") === "1";
 
     const deployment = loadDeploymentConfig();
     const requestedChainId = resolveRequestedChainId(req, deployment);
     const ctx = await getContext(requestedChainId);
-    const launchesKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${limit}:${offset}`;
+    const launchesKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${limit}:${offset}:${includeDex ? "dex" : "nodex"}`;
     const payload = await withCache(launchesCache, launchesKey, LAUNCHES_CACHE_TTL_MS, async () => {
       const page = await readLaunchPage(ctx, limit, offset);
       const creatorAddresses = [...new Set(page.launches.map((launch) => String(launch?.creator || "").toLowerCase()).filter(Boolean))];
@@ -2441,7 +2442,10 @@ app.get("/api/launches", async (req, res) => {
         creatorProfiles = {};
       }
 
-      const launches = await mapWithConcurrency(page.launches, MAX_LAUNCH_READ_CONCURRENCY, async (launch) => {
+      const launches = await mapWithConcurrency(
+        page.launches.map((launch, index) => ({ launch, index })),
+        MAX_LAUNCH_READ_CONCURRENCY,
+        async ({ launch, index }) => {
         let pool = null;
         let dexSnapshot = null;
         try {
@@ -2449,10 +2453,12 @@ app.get("/api/launches", async (req, res) => {
         } catch {
           pool = null;
         }
-        try {
-          dexSnapshot = await readDexScreenerTokenSnapshot(ctx.chainId, launch.token, pool?.migratedPair || "");
-        } catch {
-          dexSnapshot = null;
+        if (includeDex && index < 8) {
+          try {
+            dexSnapshot = await readDexScreenerTokenSnapshot(ctx.chainId, launch.token, pool?.migratedPair || "");
+          } catch {
+            dexSnapshot = null;
+          }
         }
 
         return {

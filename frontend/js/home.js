@@ -113,6 +113,7 @@ function loadCachedLaunches() {
 }
 
 function saveCachedLaunches(launches) {
+  if (!Array.isArray(launches) || launches.length === 0) return;
   try {
     localStorage.setItem(
       LAUNCH_CACHE_KEY,
@@ -893,8 +894,24 @@ async function refreshLaunches() {
     throw lastError || new Error("Unable to load launches");
   }
 
-  state.launches = launchesRes.launches || [];
-  saveCachedLaunches(state.launches);
+  const freshLaunches = Array.isArray(launchesRes?.launches)
+    ? launchesRes.launches.filter((row) => Boolean(row && row.token))
+    : [];
+
+  if (!freshLaunches.length) {
+    const cached = loadCachedLaunches();
+    if (cached.length) {
+      state.launches = cached;
+      updateMoverSignals(state.launches);
+      renderTrending();
+      renderExplore();
+      setAlert(ui.alert, "Live feed is syncing, showing recent cached tokens.");
+      return;
+    }
+  }
+
+  state.launches = freshLaunches;
+  saveCachedLaunches(freshLaunches);
   updateMoverSignals(state.launches);
   renderTrending();
   renderExplore();

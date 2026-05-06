@@ -367,6 +367,7 @@ function pickRpcUrls(chainId) {
 
   if (chainId === 1) {
     pushIf(process.env.MAINNET_RPC_URL);
+    pushIf("https://eth-mainnet.g.alchemy.com/v2/iJRW-AEdqp-ijB69j9JQe");
     pushIf("https://ethereum-rpc.publicnode.com");
     pushIf("https://rpc.ankr.com/eth");
     pushIf("https://cloudflare-eth.com");

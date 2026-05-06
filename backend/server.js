@@ -73,7 +73,7 @@ const GECKO_POOL_CACHE_TTL_MS = 15_000;
 const GECKO_TRADES_CACHE_TTL_MS = 10_000;
 const GECKO_SPARKLINE_CACHE_TTL_MS = 45_000;
 const DEX_TOKEN_CACHE_TTL_MS = 12_000;
-const MAX_LAUNCH_READ_CONCURRENCY = 8;
+const MAX_LAUNCH_READ_CONCURRENCY = 3;
 const MAX_BALANCE_READ_CONCURRENCY = 10;
 const MAX_SOCIAL_POOL_CONCURRENCY = 3;
 const LOG_LOOKBACK_BLOCKS = Math.max(120, Number(process.env.LOG_LOOKBACK_BLOCKS || 1200));
@@ -398,7 +398,11 @@ async function buildContext(chainId, factoryAddress, deployment = loadDeployment
 
   for (const candidate of rpcUrls) {
     try {
-      const p = new ethers.JsonRpcProvider(candidate, normalizedChainId);
+      const p = new ethers.JsonRpcProvider(candidate, normalizedChainId, {
+        // Prevent extra eth_chainId checks on every call; this avoids
+        // tripping strict per-second RPC limits in production.
+        staticNetwork: true
+      });
       await p.getBlockNumber();
       const f = new ethers.Contract(factoryAddress, FACTORY_ARTIFACT.abi, p);
       await f.getLaunchCount();

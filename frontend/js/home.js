@@ -22,6 +22,8 @@ import { getLaunchSparklinePath, initCoinSearchOverlay } from "./searchModal.js?
 import { initSupportWidget } from "./support.js";
 
 const WATCHLIST_KEY = "etherpump.watchlist.v1";
+const LAUNCH_CACHE_KEY = "etherpump.launches.cache.v1";
+const LAUNCH_CACHE_MAX_AGE_MS = 5 * 60 * 1000;
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;
 
 const ui = {
@@ -90,6 +92,39 @@ const state = {
 
 let walletHub = null;
 let walletControls = null;
+
+function sleep(ms) {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function loadCachedLaunches() {
+  try {
+    const raw = localStorage.getItem(LAUNCH_CACHE_KEY);
+    if (!raw) return [];
+    const payload = JSON.parse(raw);
+    const ts = Number(payload?.ts || 0);
+    const launches = Array.isArray(payload?.launches) ? payload.launches : [];
+    if (!launches.length) return [];
+    if (!Number.isFinite(ts) || Date.now() - ts > LAUNCH_CACHE_MAX_AGE_MS) return [];
+    return launches;
+  } catch {
+    return [];
+  }
+}
+
+function saveCachedLaunches(launches) {
+  try {
+    localStorage.setItem(
+      LAUNCH_CACHE_KEY,
+      JSON.stringify({
+        ts: Date.now(),
+        launches: Array.isArray(launches) ? launches : []
+      })
+    );
+  } catch {
+    // ignore storage failures
+  }
+}
 
 function followerMetaText(count) {
   const numeric = Math.max(0, Number(count || 0));
@@ -833,11 +868,37 @@ function setupInteractions() {
 }
 
 async function refreshLaunches() {
-  const launchesRes = await api.launches(36, 0);
+  let launchesRes = null;
+  let lastError = null;
+  const retryDelays = [0, 350, 900];
+  for (const delayMs of retryDelays) {
+    if (delayMs > 0) await sleep(delayMs);
+    try {
+      launchesRes = await api.launches(24, 0);
+      break;
+    } catch (error) {
+      lastError = error;
+    }
+  }
+
+  if (!launchesRes) {
+    const cached = loadCachedLaunches();
+    if (cached.length) {
+      state.launches = cached;
+      updateMoverSignals(state.launches);
+      renderTrending();
+      renderExplore();
+      return;
+    }
+    throw lastError || new Error("Unable to load launches");
+  }
+
   state.launches = launchesRes.launches || [];
+  saveCachedLaunches(state.launches);
   updateMoverSignals(state.launches);
   renderTrending();
   renderExplore();
+  setAlert(ui.alert, "");
 
   const ws = walletState();
   if (ws.address) {
@@ -952,8 +1013,16 @@ async function init() {
   try {
     await refreshLaunches();
   } catch (err) {
-    ui.trendingWrap.innerHTML = `<article class="panel-card"><p class="muted">Unable to load trending tokens right now.</p></article>`;
-    ui.launchesWrap.innerHTML = `<article class="panel-card"><p class="muted">Unable to load explore feed right now.</p></article>`;
+    const cached = loadCachedLaunches();
+    if (cached.length) {
+      state.launches = cached;
+      updateMoverSignals(state.launches);
+      renderTrending();
+      renderExplore();
+    } else {
+      ui.trendingWrap.innerHTML = `<article class="panel-card"><p class="muted">Unable to load trending tokens right now.</p></article>`;
+      ui.launchesWrap.innerHTML = `<article class="panel-card"><p class="muted">Unable to load explore feed right now.</p></article>`;
+    }
     setAlert(ui.alert, parseUiError(err), true);
   }
 

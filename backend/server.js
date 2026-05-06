@@ -2429,11 +2429,27 @@ app.get("/api/launches", async (req, res) => {
     const payload = await withCache(launchesCache, launchesKey, LAUNCHES_CACHE_TTL_MS, async () => {
       const page = await readLaunchPage(ctx, limit, offset);
       const creatorAddresses = [...new Set(page.launches.map((launch) => String(launch?.creator || "").toLowerCase()).filter(Boolean))];
-      const creatorProfiles = await getPersistedProfiles(creatorAddresses);
+      let creatorProfiles = {};
+      try {
+        creatorProfiles = await getPersistedProfiles(creatorAddresses);
+      } catch {
+        creatorProfiles = {};
+      }
 
       const launches = await mapWithConcurrency(page.launches, MAX_LAUNCH_READ_CONCURRENCY, async (launch) => {
-        const pool = await readPoolSnapshot(ctx.provider, launch);
-        const dexSnapshot = await readDexScreenerTokenSnapshot(ctx.chainId, launch.token, pool?.migratedPair || "");
+        let pool = null;
+        let dexSnapshot = null;
+        try {
+          pool = await readPoolSnapshot(ctx.provider, launch);
+        } catch {
+          pool = null;
+        }
+        try {
+          dexSnapshot = await readDexScreenerTokenSnapshot(ctx.chainId, launch.token, pool?.migratedPair || "");
+        } catch {
+          dexSnapshot = null;
+        }
+
         return {
           ...launch,
           tokenAddress: launch.token,

@@ -1414,7 +1414,7 @@ function ensureChart() {
 }
 
 function renderChart() {
-  if (hasDexMarket(state.launch)) {
+  if (geckoPoolUrl(state.launch)) {
     const rendered = renderGeckoChart(state.launch);
     if (rendered) return;
   }
@@ -1447,7 +1447,7 @@ function renderChart() {
   ui.chartLow.textContent = latest ? priceFormat(latest.low) : "-";
   ui.chartClose.textContent = latest ? priceFormat(latest.close) : "-";
   ui.chartVolume.textContent = latestVol ? volumeFormat(latestVol.value) : "-";
-  if (hasDexMarket(state.launch)) {
+  if (geckoPoolUrl(state.launch)) {
     ui.chartPairLabel.textContent = `${state.launch?.symbol || "TOKEN"}/ETH - GeckoTerminal`;
   }
 }

@@ -1,4 +1,4 @@
-import { api } from "./api.js";
+ï»¿import { api } from "./api.js";
 import {
   defaultUsername,
   disconnectWallet,
@@ -176,7 +176,9 @@ const state = {
   creatorClaimPending: false,
   optimisticTrades: [],
   forceLocalChartUntil: 0,
-  pairMeta: null
+  pairMeta: null,
+  fullRefreshInFlight: false,
+  lastFullRefreshAt: 0
 };
 let walletHub = null;
 let walletControls = null;
@@ -1108,7 +1110,7 @@ function setTokenHeader(launch) {
   setAvatarNode(ui.creatorRewardAvatar, creatorInitials, creatorImage);
   if (ui.creatorShare) {
     const claimableUsd = creatorClaimableUsdFromLaunch(launch);
-    ui.creatorShare.textContent = `Claimable ${formatCompactUsd(claimableUsd)} · Min $${CLAIM_MIN_USD}`;
+    ui.creatorShare.textContent = `Claimable ${formatCompactUsd(claimableUsd)} Â· Min $${CLAIM_MIN_USD}`;
     ui.creatorShare.hidden = false;
   }
   if (ui.creatorClaimableUsd || ui.creatorUnclaimedLine || ui.creatorSharePct) {
@@ -1684,23 +1686,23 @@ function renderTradePanel() {
     if (ui.tradePrimaryAmount) ui.tradePrimaryAmount.textContent = formatTradeNumber(buyEth, 6);
     if (ui.tradePrimaryUnit) ui.tradePrimaryUnit.textContent = "ETH";
     if (ui.tradeApproxLine) {
-      ui.tradeApproxLine.textContent = `~ ${formatCompactUsd(ethToUsd(buyEth, state.ethUsd))} · ~ ${formatTradeNumber(
+      ui.tradeApproxLine.textContent = `~ ${formatCompactUsd(ethToUsd(buyEth, state.ethUsd))} Â· ~ ${formatTradeNumber(
         buyToken,
         4
       )} ${symbol}`;
     }
-    if (ui.tradeReceiveLine) ui.tradeReceiveLine.textContent = `You receive ˜ ${formatTradeNumber(buyToken, 4)} ${symbol}`;
+    if (ui.tradeReceiveLine) ui.tradeReceiveLine.textContent = `You receive Ëœ ${formatTradeNumber(buyToken, 4)} ${symbol}`;
     if (ui.buyBtn) ui.buyBtn.textContent = buyEth > 0 ? `Buy ${formatTradeNumber(buyEth, 6)} ETH` : "Enter amount to buy";
   } else {
     if (ui.tradePrimaryAmount) ui.tradePrimaryAmount.textContent = formatTradeNumber(sellToken, 4);
     if (ui.tradePrimaryUnit) ui.tradePrimaryUnit.textContent = symbol;
     if (ui.tradeApproxLine) {
-      ui.tradeApproxLine.textContent = `~ ${formatCompactUsd(ethToUsd(sellEth, state.ethUsd))} · ~ ${formatTradeNumber(
+      ui.tradeApproxLine.textContent = `~ ${formatCompactUsd(ethToUsd(sellEth, state.ethUsd))} Â· ~ ${formatTradeNumber(
         sellEth,
         6
       )} ETH`;
     }
-    if (ui.tradeReceiveLine) ui.tradeReceiveLine.textContent = `You receive ˜ ${formatTradeNumber(sellEth, 6)} ETH`;
+    if (ui.tradeReceiveLine) ui.tradeReceiveLine.textContent = `You receive Ëœ ${formatTradeNumber(sellEth, 6)} ETH`;
     if (ui.sellBtn) ui.sellBtn.textContent = sellToken > 0 ? `Sell ${formatTradeNumber(sellToken, 4)} ${symbol}` : "Enter amount to sell";
   }
 }
@@ -2487,15 +2489,22 @@ async function init() {
   }
 
   renderSeededLaunch();
-  await loadTokenPage(true, true);
-  loadTokenPage(true, false).catch(() => {
+  refreshTokenFull(true).catch(() => {
     // The lite payload already rendered the token; keep rich market data best-effort.
   });
+  await loadTokenPage(true, true);
 
   setInterval(() => {
     loadTokenPage(true, true).catch(() => {
       // ignore transient poll failures
     });
+    const needsDexSync = !hasDexMarket(state.launch);
+    const staleFull = Date.now() - Number(state.lastFullRefreshAt || 0) > 12_000;
+    if (needsDexSync && staleFull) {
+      refreshTokenFull(true).catch(() => {
+        // ignore transient full-refresh failures
+      });
+    }
   }, 2_500);
 
   setInterval(() => {

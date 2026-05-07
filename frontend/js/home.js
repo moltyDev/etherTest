@@ -92,6 +92,7 @@ const state = {
 
 let walletHub = null;
 let walletControls = null;
+let refreshCycle = 0;
 
 function sleep(ms) {
   return new Promise((resolve) => setTimeout(resolve, ms));
@@ -125,6 +126,44 @@ function saveCachedLaunches(launches) {
   } catch {
     // ignore storage failures
   }
+}
+
+function mergeLaunchRows(base = [], updates = []) {
+  const byToken = new Map();
+  for (const row of base) {
+    const token = getTokenId(row);
+    if (token) byToken.set(token, row);
+  }
+  for (const row of updates) {
+    const token = getTokenId(row);
+    if (!token) continue;
+    byToken.set(token, { ...(byToken.get(token) || {}), ...row });
+  }
+  return Array.from(byToken.values()).sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
+}
+
+async function fetchLaunchPages(options = {}) {
+  const pageSize = 120;
+  let offset = 0;
+  let total = null;
+  const launches = [];
+  const seen = new Set();
+
+  for (let pageIndex = 0; pageIndex < 8; pageIndex++) {
+    const page = await api.launches(pageSize, offset, options);
+    const rows = Array.isArray(page?.launches) ? page.launches.filter((row) => Boolean(row && row.token)) : [];
+    if (total === null) total = Number(page?.total || 0);
+    for (const row of rows) {
+      const token = getTokenId(row);
+      if (!token || seen.has(token)) continue;
+      seen.add(token);
+      launches.push(row);
+    }
+    offset += rows.length;
+    if (!rows.length || rows.length < pageSize || (Number.isFinite(total) && launches.length >= total)) break;
+  }
+
+  return { total: Number(total || launches.length), launches };
 }
 
 function followerMetaText(count) {
@@ -869,29 +908,46 @@ function setupInteractions() {
   });
 }
 
-async function refreshLaunches() {
+async function refreshLaunches(options = {}) {
+  const enrich = options.enrich !== false;
   let launchesRes = null;
   let lastError = null;
-  const retryDelays = [0, 350, 900];
-  for (const delayMs of retryDelays) {
-    if (delayMs > 0) await sleep(delayMs);
-    try {
-      launchesRes = await api.launches(24, 0);
-      break;
-    } catch (error) {
-      lastError = error;
+  const cached = loadCachedLaunches();
+  if (!state.launches.length && cached.length) {
+    state.launches = cached;
+    updateMoverSignals(state.launches);
+    renderTrending();
+    renderExplore();
+  }
+
+  try {
+    const quick = await fetchLaunchPages({ lite: true, includeDex: false, fresh: true });
+    if (quick.launches.length) {
+      state.launches = mergeLaunchRows(state.launches, quick.launches);
+      saveCachedLaunches(state.launches);
+      updateMoverSignals(state.launches);
+      renderTrending();
+      renderExplore();
+    }
+  } catch (error) {
+    lastError = error;
+  }
+
+  if (enrich) {
+    const retryDelays = [0, 500, 1200];
+    for (const delayMs of retryDelays) {
+      if (delayMs > 0) await sleep(delayMs);
+      try {
+        launchesRes = await fetchLaunchPages({ includeDex: false, fresh: true });
+        break;
+      } catch (error) {
+        lastError = error;
+      }
     }
   }
 
   if (!launchesRes) {
-    const cached = loadCachedLaunches();
-    if (cached.length) {
-      state.launches = cached;
-      updateMoverSignals(state.launches);
-      renderTrending();
-      renderExplore();
-      return;
-    }
+    if (state.launches.length) return;
     throw lastError || new Error("Unable to load launches");
   }
 
@@ -1045,7 +1101,8 @@ async function init() {
   }
 
   setInterval(() => {
-    refreshLaunches().catch(() => {
+    refreshCycle += 1;
+    refreshLaunches({ enrich: refreshCycle % 4 === 0 }).catch(() => {
       // ignore transient polling failures
     });
   }, 12000);

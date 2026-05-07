@@ -62,7 +62,7 @@ if (USE_DISK_UPLOADS && !fs.existsSync(UPLOADS_DIR)) {
 
 const contextCache = new Map();
 
-const LAUNCHES_CACHE_TTL_MS = 12_000;
+const LAUNCHES_CACHE_TTL_MS = 4_000;
 const POOL_SNAPSHOT_CACHE_TTL_MS = 10_000;
 const STATS_CACHE_TTL_MS = 20_000;
 const TOKEN_CACHE_TTL_MS = 6_000;
@@ -2571,15 +2571,18 @@ app.get("/api/config", async (req, res) => {
 
 app.get("/api/launches", async (req, res) => {
   try {
-    const limit = Math.max(1, Math.min(60, Number(req.query.limit || 20)));
+    const limit = Math.max(1, Math.min(120, Number(req.query.limit || 20)));
     const offset = Math.max(0, Number(req.query.offset || 0));
     const includeDex = String(req.query.includeDex || "0") === "1";
+    const lite = String(req.query.lite || "0") === "1";
+    const forceFresh = String(req.query.fresh || "0") === "1";
 
     const deployment = loadDeploymentConfig();
     const requestedChainId = resolveRequestedChainId(req, deployment);
     const ctx = await getContext(requestedChainId);
-    const launchesKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${limit}:${offset}:${includeDex ? "dex" : "nodex"}`;
-    const payload = await withCache(launchesCache, launchesKey, LAUNCHES_CACHE_TTL_MS, async () => {
+    const count = await readFactoryLaunchCount(ctx.factory);
+    const launchesKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${count}:${limit}:${offset}:${includeDex ? "dex" : "nodex"}:${lite ? "lite" : "full"}`;
+    const builder = async () => {
       const page = await readLaunchPage(ctx, limit, offset);
       const creatorAddresses = [...new Set(page.launches.map((launch) => String(launch?.creator || "").toLowerCase()).filter(Boolean))];
       let creatorProfiles = {};
@@ -2595,12 +2598,16 @@ app.get("/api/launches", async (req, res) => {
         async ({ launch, index }) => {
         let pool = null;
         let dexSnapshot = null;
-        try {
-          pool = await readPoolSnapshot(ctx.provider, launch);
-        } catch {
-          pool = null;
+        if (lite) {
+          pool = buildPoolFallbackFromLaunch(launch);
+        } else {
+          try {
+            pool = await readPoolSnapshot(ctx.provider, launch);
+          } catch {
+            pool = buildPoolFallbackFromLaunch(launch);
+          }
         }
-        if (includeDex && index < 8) {
+        if (!lite && includeDex && index < 8) {
           try {
             dexSnapshot = await readDexScreenerTokenSnapshot(ctx.chainId, launch.token, pool?.migratedPair || "");
           } catch {
@@ -2618,7 +2625,8 @@ app.get("/api/launches", async (req, res) => {
         };
       });
       return { total: page.total, launches };
-    });
+    };
+    const payload = forceFresh ? await builder() : await withCache(launchesCache, launchesKey, LAUNCHES_CACHE_TTL_MS, builder);
 
     res.json(payload);
   } catch (error) {
@@ -2895,6 +2903,25 @@ async function handleTokenRequest(req, res, tokenCandidate) {
         creatorClaimedTokens: 0,
         platformClaimableTokens: 0
       }));
+
+      if (lite) {
+        return {
+          launch: {
+            ...safeLaunch,
+            tokenAddress: safeLaunch.token,
+            poolAddress: safeLaunch.pool,
+            creatorProfile: await getPersistedProfile(safeLaunch.creator).catch(() => sanitizeProfileValue(safeLaunch.creator)),
+            pool: poolBase,
+            feeSnapshot
+          },
+          trades: [],
+          chart: [],
+          topHolders: null,
+          gecko: null,
+          dex: null
+        };
+      }
+
       let dex = null;
       try {
         dex = await readDexScreenerTokenSnapshot(ctx.chainId, safeLaunch.token, poolBase.migratedPair);

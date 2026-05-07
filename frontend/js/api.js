@@ -53,7 +53,16 @@ export const api = {
   health: () => apiGet("/api/health"),
   config: () => apiGet("/api/config"),
   stats: () => apiGet("/api/stats"),
-  launches: (limit = 20, offset = 0) => apiGet(`/api/launches?limit=${limit}&offset=${offset}&includeDex=1`),
+  launches: (limit = 20, offset = 0, options = {}) => {
+    const params = new URLSearchParams({
+      limit: String(limit),
+      offset: String(offset),
+      includeDex: options.includeDex === false ? "0" : "1"
+    });
+    if (options.lite) params.set("lite", "1");
+    if (options.fresh) params.set("fresh", "1");
+    return apiGet(`/api/launches?${params.toString()}`);
+  },
   token: (tokenAddress, options = {}) => {
     const params = new URLSearchParams();
     if (options.fresh) params.set("fresh", "1");

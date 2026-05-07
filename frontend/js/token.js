@@ -2419,7 +2419,10 @@ async function init() {
     // keep fallback ETH/USD price
   }
 
-  await loadTokenPage(false, false);
+  await loadTokenPage(true, true);
+  loadTokenPage(true, false).catch(() => {
+    // The lite payload already rendered the token; keep rich market data best-effort.
+  });
 
   setInterval(() => {
     loadTokenPage(true, true).catch(() => {

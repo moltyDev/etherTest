@@ -22,7 +22,7 @@ import {
   walletState
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert, setWalletLabel, showCopyToast } from "./ui.js";
-import { initCoinSearchOverlay } from "./searchModal.js?v=20260505a";
+import { initCoinSearchOverlay, recordViewedLaunch } from "./searchModal.js?v=20260505a";
 import { initSupportWidget } from "./support.js";
 
 const MAX_PROFILE_IMAGE_BYTES = 2 * 1024 * 1024;
@@ -929,6 +929,17 @@ function setupTabs() {
 
 function setupCreatorRewardsActions() {
   ui.profileTabContent?.addEventListener("click", async (event) => {
+    const tokenLink = event.target.closest('a[href^="/token?token="]');
+    if (tokenLink) {
+      const href = new URL(tokenLink.href, window.location.origin);
+      const tokenAddress = normalizeAddress(href.searchParams.get("token") || "");
+      const launchRow = [...(state.payload?.created || []), ...(state.payload?.holdings || [])].find(
+        (row) => normalizeAddress(row?.token || row?.tokenAddress || "") === tokenAddress
+      );
+      if (launchRow) recordViewedLaunch(launchRow);
+      return;
+    }
+
     const trigger = event.target.closest("[data-claim-token]");
     if (!trigger) return;
     const tokenAddress = normalizeAddress(trigger.dataset.claimToken || "");
@@ -965,6 +976,17 @@ function setupCreatorRewardsActions() {
     } finally {
       trigger.disabled = false;
     }
+  });
+
+  ui.createdMiniList?.addEventListener("click", (event) => {
+    const tokenLink = event.target.closest('a[href^="/token?token="]');
+    if (!tokenLink) return;
+    const href = new URL(tokenLink.href, window.location.origin);
+    const tokenAddress = normalizeAddress(href.searchParams.get("token") || "");
+    const launchRow = (state.payload?.created || []).find(
+      (row) => normalizeAddress(row?.token || row?.tokenAddress || "") === tokenAddress
+    );
+    if (launchRow) recordViewedLaunch(launchRow);
   });
 }
 

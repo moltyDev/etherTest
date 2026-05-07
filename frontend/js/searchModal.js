@@ -119,7 +119,15 @@ export function recordViewedLaunch(launch) {
     symbol: String(launch.symbol || ""),
     creator: String(launch.creator || ""),
     imageURI: String(launch.imageURI || ""),
-    marketCapWei: String(launch?.pool?.marketCapWei || "0")
+    description: String(launch.description || ""),
+    totalSupply: String(launch.totalSupply || "0"),
+    creatorAllocation: String(launch.creatorAllocation || "0"),
+    createdAt: Number(launch.createdAt || 0),
+    poolAddress: String(launch.poolAddress || launch.pool || ""),
+    tokenAddress: String(launch.tokenAddress || launch.token || ""),
+    pool: launch.pool || null,
+    dexSnapshot: launch.dexSnapshot || null,
+    marketCapWei: String(launch?.pool?.marketCapWei || launch?.marketCapWei || "0")
   };
   const list = readList(RECENT_VIEWED_KEY).filter((item) => String(item?.token || "").toLowerCase() !== token);
   list.unshift(entry);
@@ -141,8 +149,9 @@ function timeAgo(tsMs) {
   return `${days}d ago`;
 }
 
-function openToken(token) {
+function openToken(token, launch = null) {
   if (!token) return;
+  if (launch) recordViewedLaunch(launch);
   window.location.href = `/token?token=${token}`;
 }
 
@@ -532,9 +541,10 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
     if (openTokenBtn) {
       const token = String(openTokenBtn.dataset.openToken || "");
       if (token) {
+        const launch = state.launches.find((row) => String(row?.token || "").toLowerCase() === token.toLowerCase()) || null;
         addRecentSearch(state.query || token);
         close();
-        openToken(token);
+        openToken(token, launch);
       }
       return;
     }
@@ -610,7 +620,7 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
       });
       if (first?.token) {
         close();
-        openToken(first.token);
+        openToken(first.token, first);
       }
     }
   });

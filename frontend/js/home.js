@@ -18,7 +18,7 @@ import {
   weiToUsd
 } from "./core.js";
 import { initWalletControls, initWalletHubMenu, setAlert } from "./ui.js";
-import { getLaunchSparklinePath, initCoinSearchOverlay } from "./searchModal.js?v=20260505a";
+import { getLaunchSparklinePath, initCoinSearchOverlay, recordViewedLaunch } from "./searchModal.js?v=20260505a";
 import { initSupportWidget } from "./support.js";
 
 const WATCHLIST_KEY = "etherpump.watchlist.v1";
@@ -904,14 +904,33 @@ function setupInteractions() {
 
   ui.launchesWrap?.addEventListener("click", (event) => {
     const watchBtn = event.target.closest("[data-watch-token]");
-    if (!watchBtn) return;
-    event.preventDefault();
-    event.stopPropagation();
-    const token = String(watchBtn.dataset.watchToken || "").toLowerCase();
+    if (watchBtn) {
+      event.preventDefault();
+      event.stopPropagation();
+      const token = String(watchBtn.dataset.watchToken || "").toLowerCase();
+      const launch = state.launches.find((item) => getTokenId(item) === token);
+      if (!launch) return;
+      toggleWatch(launch);
+      renderExplore();
+      return;
+    }
+
+    const tokenLink = event.target.closest('a[href^="/token?token="]');
+    if (tokenLink) {
+      const href = new URL(tokenLink.href, window.location.origin);
+      const token = String(href.searchParams.get("token") || "").toLowerCase();
+      const launch = state.launches.find((item) => getTokenId(item) === token);
+      if (launch) recordViewedLaunch(launch);
+    }
+  });
+
+  ui.trendingWrap?.addEventListener("click", (event) => {
+    const tokenLink = event.target.closest('a[href^="/token?token="]');
+    if (!tokenLink) return;
+    const href = new URL(tokenLink.href, window.location.origin);
+    const token = String(href.searchParams.get("token") || "").toLowerCase();
     const launch = state.launches.find((item) => getTokenId(item) === token);
-    if (!launch) return;
-    toggleWatch(launch);
-    renderExplore();
+    if (launch) recordViewedLaunch(launch);
   });
 }
 

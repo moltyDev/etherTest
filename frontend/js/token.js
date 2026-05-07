@@ -209,6 +209,8 @@ const V2_PAIR_SWAP_EVENT_ABI = [
 ];
 const V2_PAIR_META_ABI = ["function token0() view returns (address)", "function token1() view returns (address)"];
 const CLAIM_MIN_USD = 8;
+const RECENT_VIEWED_KEY = "etherpump.search.viewed.v1";
+
 
 function followerMetaText(count) {
   const numeric = Math.max(0, Number(count || 0));
@@ -544,6 +546,71 @@ function buildSyntheticOptimisticTrade({
   };
 }
 
+function readSeededLaunch(tokenAddress) {
+  const token = normalizeAddress(tokenAddress);
+  if (!token) return null;
+  try {
+    const viewed = JSON.parse(localStorage.getItem(RECENT_VIEWED_KEY) || "[]");
+    if (!Array.isArray(viewed)) return null;
+    const entry = viewed.find((row) => normalizeAddress(row?.token || row?.tokenAddress || "") === token);
+    if (!entry) return null;
+    const pool = entry.pool && typeof entry.pool === "object"
+      ? entry.pool
+      : {
+          graduated: false,
+          migratedPair: ZERO_ADDRESS,
+          dexRouter: ZERO_ADDRESS,
+          spotPriceWei: "0",
+          effectiveSpotPriceWei: "0",
+          spotPriceEth: 0,
+          marketCapWei: String(entry.marketCapWei || "0"),
+          marketCapEth: 0,
+          circulatingSupply: String(entry.totalSupply || "0")
+        };
+    return {
+      id: Number(entry.id || 0),
+      token,
+      tokenAddress: token,
+      poolAddress: String(entry.poolAddress || entry.pool || ""),
+      pool: String(entry.poolAddress || entry.pool || ""),
+      creator: String(entry.creator || ""),
+      name: String(entry.name || "Token"),
+      symbol: String(entry.symbol || "TOKEN"),
+      imageURI: String(entry.imageURI || ""),
+      description: String(entry.description || ""),
+      totalSupply: String(entry.totalSupply || pool.circulatingSupply || "0"),
+      creatorAllocation: String(entry.creatorAllocation || "0"),
+      createdAt: Number(entry.createdAt || Math.floor(Number(entry.ts || Date.now()) / 1000)),
+      creatorProfile: entry.creatorProfile || null,
+      feeSnapshot: entry.feeSnapshot || {
+        creatorClaimableWei: "0",
+        creatorClaimedWei: "0",
+        platformClaimableWei: "0"
+      },
+      pool
+    };
+  } catch {
+    return null;
+  }
+}
+
+function renderSeededLaunch() {
+  const seeded = readSeededLaunch(state.token);
+  if (!seeded) return false;
+  state.launch = seeded;
+  state.trades = mergeTradesWithOptimistic(state.trades || []);
+  state.gecko = null;
+  state.dex = null;
+  setTokenHeader(seeded);
+  setSideMetrics(seeded);
+  appendLivePoint(seeded);
+  state.allSeries = buildSeries({ launch: seeded, chart: [] });
+  renderTrades(state.trades);
+  renderOverview();
+  renderTradePanel();
+  return true;
+}
+
 function getTokenFromUrl() {
   const params = new URLSearchParams(window.location.search);
   const direct =
@@ -559,7 +626,7 @@ function getTokenFromUrl() {
   if (pathMatch?.[1]) return pathMatch[1];
 
   try {
-    const viewed = JSON.parse(localStorage.getItem("etherpump.search.viewed.v1") || "[]");
+    const viewed = JSON.parse(localStorage.getItem(RECENT_VIEWED_KEY) || "[]");
     if (Array.isArray(viewed) && viewed[0]?.token) {
       return String(viewed[0].token);
     }
@@ -2419,6 +2486,7 @@ async function init() {
     // keep fallback ETH/USD price
   }
 
+  renderSeededLaunch();
   await loadTokenPage(true, true);
   loadTokenPage(true, false).catch(() => {
     // The lite payload already rendered the token; keep rich market data best-effort.

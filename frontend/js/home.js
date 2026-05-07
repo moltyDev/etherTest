@@ -283,15 +283,16 @@ function profileHrefFor(value) {
   return isWalletAddress(raw) ? `/profile?address=${raw}` : "/profile";
 }
 
-function renderCreatorPill(address, maxNameLen = 20) {
+function renderCreatorPill(address, maxNameLen = 20, fallbackAddress = "") {
   const { name, imageUri, initials } = creatorMeta(address);
   const shortName = trimText(name, maxNameLen);
   const safeName = escapeHtml(name);
   const safeShortName = escapeHtml(shortName);
-  const href = profileHrefFor(address);
+  const resolvedAddress = isWalletAddress(address) ? String(address || "").trim() : String(fallbackAddress || "").trim();
+  const href = profileHrefFor(resolvedAddress);
   const ws = walletState();
   const viewer = String(ws.address || "").toLowerCase();
-  const creator = String(address || "").toLowerCase();
+  const creator = String(resolvedAddress || address || "").toLowerCase();
   const isViewerCreator = Boolean(viewer && creator && viewer === creator);
   const creatorTag = isViewerCreator ? `<span class="creator-pill-name" title="You are the creator">You</span>` : "";
 
@@ -606,7 +607,7 @@ function buildExploreCard(launch) {
         </div>
         <strong class="coin-metric">${formatLaunchMarketCap(launch)}</strong>
         <div class="coin-meta">
-          ${renderCreatorPill(launch.creator, 20)}
+          ${renderCreatorPill(launch.creator, 20, launch?.creatorProfile?.address)}
           <span title="${absoluteDate(launch.createdAt)}">${humanAgo(launch.createdAt)}</span>
         </div>
         <p>${trimText(launch.description, 92)}</p>

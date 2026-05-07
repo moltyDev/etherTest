@@ -325,6 +325,10 @@ function setProfileMenuOpen(open) {
 
 function formatLaunchMarketCap(launch) {
   const dexMcap = Number(launch?.dexSnapshot?.marketCapUsd || launch?.dexSnapshot?.fdvUsd || 0);
+  const graduated = Boolean(launch?.pool?.graduated);
+  if (!graduated && dexMcap <= 0) {
+    return "Syncing MC";
+  }
   const usd = dexMcap > 0 ? dexMcap : weiToUsd(launch?.pool?.marketCapWei || "0", state.ethUsd);
   return usd > 0 ? `${formatCompactUsd(usd)} MC` : "Syncing MC";
 }
@@ -1006,7 +1010,7 @@ async function refreshLaunches(options = {}) {
     for (const delayMs of retryDelays) {
       if (delayMs > 0) await sleep(delayMs);
       try {
-        launchesRes = await fetchLaunchPages({ pageSize: 24, includeDex: false });
+        launchesRes = await fetchLaunchPages({ pageSize: 24, includeDex: true });
         break;
       } catch (error) {
         lastError = error;

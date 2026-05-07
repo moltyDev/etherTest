@@ -276,6 +276,11 @@ function normalizeAddress(value) {
   }
 }
 
+function profileHrefForAddress(value) {
+  const normalized = normalizeAddress(value);
+  return normalized ? `/profile?address=${normalized}` : "/profile";
+}
+
 function creatorClaimableUsdFromLaunch(launch) {
   const claimableTokenWei = parseBigIntSafe(launch?.feeSnapshot?.creatorClaimableWei || "0");
   if (claimableTokenWei <= 0n) return 0;
@@ -1085,7 +1090,7 @@ function setTokenHeader(launch) {
   const creatorName = creatorProfile.username || creatorHandle(creatorAddress);
   const creatorInitials = creatorName.slice(0, 2).toUpperCase() || "EP";
   const creatorImage = String(creatorProfile.imageUri || "");
-  const creatorHref = `/profile?address=${creatorAddress}`;
+  const creatorHref = profileHrefForAddress(creatorAddress);
   const safeCreatorName = escapeHtml(creatorName);
   const safeCreatorImage = escapeHtml(creatorImage);
   const ws = walletState();
@@ -1108,8 +1113,8 @@ function setTokenHeader(launch) {
     `;
   }
 
-  if (ui.openCreator) ui.openCreator.href = `/profile?address=${launch.creator}`;
-  if (ui.creatorProfileLink) ui.creatorProfileLink.href = `/profile?address=${launch.creator}`;
+  if (ui.openCreator) ui.openCreator.href = profileHrefForAddress(launch.creator);
+  if (ui.creatorProfileLink) ui.creatorProfileLink.href = profileHrefForAddress(launch.creator);
   if (ui.creatorLabel) ui.creatorLabel.textContent = creatorHandle(launch.creator);
   if (ui.creatorAddressLine) ui.creatorAddressLine.textContent = shortAddress(creatorAddress);
   setAvatarNode(ui.creatorRewardAvatar, creatorInitials, creatorImage);
@@ -1145,13 +1150,13 @@ function setTokenHeader(launch) {
           : claimReady
             ? "Claim rewards"
             : `Min $${CLAIM_MIN_USD}`;
-      ui.openCreator.href = claimReady ? "#" : `/profile?address=${launch.creator}`;
+      ui.openCreator.href = claimReady ? "#" : profileHrefForAddress(launch.creator);
       ui.openCreator.dataset.action = claimReady ? "claim" : "none";
       ui.openCreator.setAttribute("aria-disabled", disabled ? "true" : "false");
       ui.openCreator.classList.toggle("is-disabled", disabled);
     } else {
       ui.openCreator.textContent = "Follow";
-      ui.openCreator.href = `/profile?address=${launch.creator}`;
+      ui.openCreator.href = profileHrefForAddress(launch.creator);
       ui.openCreator.dataset.action = "follow";
       ui.openCreator.removeAttribute("aria-disabled");
       ui.openCreator.classList.remove("is-disabled");
@@ -1582,7 +1587,7 @@ function renderTopHolders(list) {
     .map((row) => {
       const label = row.label === "Creator" ? creatorHandle(row.address) : shortAddress(row.address);
       return `
-        <a class="tokenpf-holder-row" href="/profile?address=${row.address}">
+        <a class="tokenpf-holder-row" href="${profileHrefForAddress(row.address)}">
           <span>${label}</span>
           <b>${Number(row.pct || 0).toFixed(2)}%</b>
         </a>
@@ -1622,7 +1627,7 @@ function renderTrades(trades) {
     const txHref = txBase ? `${txBase}/tx/${trade.txHash}` : "#";
     const account = trade.account ? shortAddress(trade.account) : "unknown";
     tr.innerHTML = `
-      <td><a href="${trade.account ? `/profile?address=${trade.account}` : "#"}">${account}</a></td>
+      <td><a href="${trade.account ? profileHrefForAddress(trade.account) : "#"}">${account}</a></td>
       <td><span class="badge ${trade.side}">${trade.side}</span></td>
       <td>${formatEth(trade.ethAmountWei, 6)}</td>
       <td>${formatToken(trade.tokenAmountWei, 18, 2)}</td>

@@ -60,12 +60,17 @@
     return /^0x[a-fA-F0-9]{40}$/.test(text) ? text : "";
   }
 
-  function toBigIntOrZero(value) {
+function toBigIntOrZero(value) {
     try {
       return BigInt(String(value ?? "0"));
     } catch {
       return 0n;
-    }
+}
+
+function profileHrefForAddress(value) {
+  const raw = String(value || "").trim();
+  return /^0x[a-fA-F0-9]{40}$/.test(raw) ? `/profile?address=${raw}` : "/profile";
+}
   }
 
   function poolUnitPriceWei(pool) {
@@ -228,7 +233,7 @@
         rewardsCard.style.display = "none";
         return;
       }
-      rewardsCard.href = `/profile?address=${address}`;
+      rewardsCard.href = profileHrefForAddress(address);
       const valueNode = rewardsCard.querySelector(".side-rewards-value");
       if (valueNode) {
         valueNode.textContent = formatUsd(claimableUsd);

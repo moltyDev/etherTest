@@ -157,6 +157,11 @@ function normalizeAddress(input) {
   }
 }
 
+function profileHrefForAddress(value) {
+  const normalized = normalizeAddress(value);
+  return normalized ? `/profile?address=${normalized}` : "/profile";
+}
+
 function connectedAddress() {
   return normalizeAddress(walletState().address || "");
 }
@@ -632,7 +637,7 @@ function renderFollowersTab(payload) {
       : `<span class="profile-follow-avatar">${escapeHtml(initials)}</span>`;
 
     return `
-      <a class="profile-follow-row" href="/profile?address=${address}">
+      <a class="profile-follow-row" href="${profileHrefForAddress(address)}">
         <div class="profile-follow-left">
           ${avatarMarkup}
           <div>

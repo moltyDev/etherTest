@@ -137,7 +137,14 @@ function mergeLaunchRows(base = [], updates = []) {
   for (const row of updates) {
     const token = getTokenId(row);
     if (!token) continue;
-    byToken.set(token, { ...(byToken.get(token) || {}), ...row });
+    const previous = byToken.get(token) || {};
+    const previousPool = previous.pool || {};
+    const incomingPool = row.pool || {};
+    const previousMcapWei = BigInt(String(previousPool.marketCapWei || "0"));
+    const incomingMcapWei = BigInt(String(incomingPool.marketCapWei || "0"));
+    const pool = previousMcapWei > 0n && incomingMcapWei <= 0n ? previousPool : { ...previousPool, ...incomingPool };
+    const dexSnapshot = row.dexSnapshot || previous.dexSnapshot || null;
+    byToken.set(token, { ...previous, ...row, pool, dexSnapshot });
   }
   return Array.from(byToken.values()).sort((a, b) => Number(b?.createdAt || 0) - Number(a?.createdAt || 0));
 }
@@ -319,7 +326,7 @@ function setProfileMenuOpen(open) {
 function formatLaunchMarketCap(launch) {
   const dexMcap = Number(launch?.dexSnapshot?.marketCapUsd || launch?.dexSnapshot?.fdvUsd || 0);
   const usd = dexMcap > 0 ? dexMcap : weiToUsd(launch?.pool?.marketCapWei || "0", state.ethUsd);
-  return `${formatCompactUsd(usd)} MC`;
+  return usd > 0 ? `${formatCompactUsd(usd)} MC` : "Syncing MC";
 }
 
 function addLaunchMetrics(launch) {
@@ -647,6 +654,38 @@ function renderExplore() {
   });
 }
 
+async function hydrateVisibleMarketCaps(limit = 12) {
+  const visible = filteredLaunches()
+    .filter((launch) => {
+      const dexMcap = Number(launch?.dexSnapshot?.marketCapUsd || launch?.dexSnapshot?.fdvUsd || 0);
+      const poolMcap = BigInt(String(launch?.pool?.marketCapWei || "0"));
+      return dexMcap <= 0 && poolMcap <= 0n;
+    })
+    .slice(0, limit);
+
+  if (!visible.length) return;
+  const hydrated = [];
+  await Promise.all(
+    visible.map(async (launch) => {
+      try {
+        const payload = await api.token(launch.token, { lite: true, fresh: true });
+        if (payload?.launch?.token) {
+          hydrated.push({ ...payload.launch, dexSnapshot: payload.dex || launch.dexSnapshot || null });
+        }
+      } catch {
+        // keep the fast feed row
+      }
+    })
+  );
+
+  if (!hydrated.length) return;
+  state.launches = mergeLaunchRows(state.launches, hydrated);
+  saveCachedLaunches(state.launches);
+  updateMoverSignals(state.launches);
+  renderTrending();
+  renderExplore();
+}
+
 function setActiveFilterButton() {
   for (const button of ui.filterButtons) {
     button.classList.toggle("active", button.dataset.filter === state.filter);
@@ -954,6 +993,9 @@ async function refreshLaunches(options = {}) {
       updateMoverSignals(state.launches);
       renderTrending();
       renderExplore();
+      hydrateVisibleMarketCaps(10).catch(() => {
+        // best-effort card enrichment
+      });
     }
   } catch (error) {
     lastError = error;
@@ -993,11 +1035,14 @@ async function refreshLaunches(options = {}) {
     }
   }
 
-  state.launches = freshLaunches;
-  saveCachedLaunches(freshLaunches);
+  state.launches = mergeLaunchRows(state.launches, freshLaunches);
+  saveCachedLaunches(state.launches);
   updateMoverSignals(state.launches);
   renderTrending();
   renderExplore();
+  hydrateVisibleMarketCaps(14).catch(() => {
+    // best-effort card enrichment
+  });
   setAlert(ui.alert, "");
 
   const ws = walletState();

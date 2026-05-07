@@ -274,27 +274,44 @@ function creatorMeta(address) {
   return { name, imageUri, initials };
 }
 
+function isWalletAddress(value) {
+  return /^0x[a-fA-F0-9]{40}$/.test(String(value || "").trim());
+}
+
+function profileHrefFor(value) {
+  const raw = String(value || "").trim();
+  return isWalletAddress(raw) ? `/profile?address=${raw}` : "/profile";
+}
+
 function renderCreatorPill(address, maxNameLen = 20) {
   const { name, imageUri, initials } = creatorMeta(address);
   const shortName = trimText(name, maxNameLen);
   const safeName = escapeHtml(name);
   const safeShortName = escapeHtml(shortName);
+  const href = profileHrefFor(address);
+  const ws = walletState();
+  const viewer = String(ws.address || "").toLowerCase();
+  const creator = String(address || "").toLowerCase();
+  const isViewerCreator = Boolean(viewer && creator && viewer === creator);
+  const creatorTag = isViewerCreator ? `<span class="creator-pill-name" title="You are the creator">You</span>` : "";
 
   if (imageUri) {
     return `
-      <a href="/profile?address=${address}" class="creator-pill">
+      <a href="${href}" class="creator-pill">
         <span class="creator-pill-avatar with-image">
           <img src="${escapeHtml(imageUri)}" alt="${safeName}" loading="lazy" />
         </span>
         <span class="creator-pill-name">${safeShortName}</span>
+        ${creatorTag}
       </a>
     `;
   }
 
   return `
-    <a href="/profile?address=${address}" class="creator-pill">
+    <a href="${href}" class="creator-pill">
       <span class="creator-pill-avatar">${escapeHtml(initials)}</span>
       <span class="creator-pill-name">${safeShortName}</span>
+      ${creatorTag}
     </a>
   `;
 }

@@ -1088,6 +1088,11 @@ function setTokenHeader(launch) {
   const creatorHref = `/profile?address=${creatorAddress}`;
   const safeCreatorName = escapeHtml(creatorName);
   const safeCreatorImage = escapeHtml(creatorImage);
+  const ws = walletState();
+  const connectedAddress = String(ws.address || "").toLowerCase();
+  const creatorAddressLower = String(creatorAddress || "").toLowerCase();
+  const isCreatorViewer = Boolean(connectedAddress && creatorAddressLower && connectedAddress === creatorAddressLower);
+  const creatorNameLabel = isCreatorViewer ? `${safeCreatorName} (You)` : safeCreatorName;
 
   if (ui.tokenTitle) ui.tokenTitle.textContent = launch.name || "Token";
   if (ui.tokenSymbolLine) ui.tokenSymbolLine.textContent = launch?.symbol ? `$${launch.symbol}` : "---";
@@ -1097,7 +1102,7 @@ function setTokenHeader(launch) {
       <span class="token-creator-avatar ${creatorImage ? "with-image" : ""}" ${creatorImage ? `style="background-image:url('${safeCreatorImage}')"` : ""}>${
         creatorImage ? "" : escapeHtml(creatorInitials)
       }</span>
-      <a class="token-creator-link" href="${creatorHref}">${safeCreatorName}</a>
+      <a class="token-creator-link" href="${creatorHref}">${creatorNameLabel}</a>
       <span class="token-creator-sep">&bull;</span>
       <span class="token-creator-time">${humanAgo(launch.createdAt)}</span>
     `;
@@ -1126,10 +1131,6 @@ function setTokenHeader(launch) {
   }
 
   if (ui.openCreator) {
-    const ws = walletState();
-    const connectedAddress = String(ws.address || "").toLowerCase();
-    const creatorAddressLower = String(creatorAddress || "").toLowerCase();
-    const isCreatorViewer = Boolean(connectedAddress && creatorAddressLower && connectedAddress === creatorAddressLower);
     const claimableWei = parseBigIntSafe(launch?.feeSnapshot?.creatorClaimableWei || "0");
     const claimableUsd = creatorClaimableUsdFromLaunch(launch);
     const hasClaimable = claimableWei > 0n;

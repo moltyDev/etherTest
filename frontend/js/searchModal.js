@@ -64,6 +64,10 @@ function creatorHandle(address) {
   return profile.username || defaultUsername(address);
 }
 
+function isWalletAddress(value) {
+  return /^0x[a-fA-F0-9]{40}$/.test(String(value || "").trim());
+}
+
 function normalizeWalletQuery(query = "") {
   const text = String(query || "").trim();
   if (!ETH_ADDRESS_REGEX.test(text)) return "";
@@ -552,10 +556,13 @@ export function initCoinSearchOverlay({ triggerInputs = [] } = {}) {
     const openProfileBtn = event.target.closest("[data-open-profile]");
     if (openProfileBtn) {
       const address = String(openProfileBtn.dataset.openProfile || "").trim();
-      if (address) {
+      if (isWalletAddress(address)) {
         addRecentSearch(state.query || address);
         close();
         window.location.href = `/profile?address=${address}`;
+      } else {
+        close();
+        window.location.href = "/profile";
       }
       return;
     }

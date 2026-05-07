@@ -1345,8 +1345,13 @@ async function init() {
 
   const fromUrl = getAddressFromUrl();
   if (fromUrl) {
-    await loadProfile(fromUrl);
-    return;
+    const normalizedFromUrl = normalizeAddress(fromUrl);
+    if (normalizedFromUrl) {
+      await loadProfile(normalizedFromUrl);
+      return;
+    }
+    // Ignore invalid query values (e.g. usernames) and continue with wallet fallback.
+    updateQuery("");
   }
 
   const ws = walletState();

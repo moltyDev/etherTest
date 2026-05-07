@@ -2053,6 +2053,16 @@ async function loadTokenPage(forceFresh = false, lite = false) {
   renderTradePanel();
 }
 
+
+async function refreshTokenFull(forceFresh = true) {
+  if (state.fullRefreshInFlight) return;
+  state.fullRefreshInFlight = true;
+  try {
+    await loadTokenPage(forceFresh, false);
+  } finally {
+    state.fullRefreshInFlight = false;
+  }
+}
 async function refreshEthUsd(force = false) {
   const price = await fetchEthUsdPrice(force);
   if (Number.isFinite(price) && price > 0) {

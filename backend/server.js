@@ -2898,11 +2898,26 @@ async function handleTokenRequest(req, res, tokenCandidate) {
     const requestedChainId = resolveRequestedChainId(req, deployment);
     const lite = String(req.query.lite || "0") === "1";
     const ctx = await getContext(requestedChainId, { verify: !lite });
-    const tokenKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${tokenAddress.toLowerCase()}:${lite ? "lite" : "full"}`;
+    const launchIdHintRaw = req.query?.launchId ?? req.query?.id;
+    const launchIdHint = Number.isFinite(Number(launchIdHintRaw)) ? Math.floor(Number(launchIdHintRaw)) : null;
+    const tokenKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${tokenAddress.toLowerCase()}:${lite ? "lite" : "full"}:${launchIdHint ?? "scan"}`;
     const forceFresh = String(req.query.fresh || "0") === "1";
     const builder = async () => {
-      const launchList = await readLaunchList(ctx);
-      const launch = launchList.find((row) => String(row.token || "").toLowerCase() === tokenAddress.toLowerCase()) || null;
+      let launch = null;
+      if (launchIdHint !== null && launchIdHint >= 0) {
+        try {
+          const hinted = await readLaunch(ctx.factory, launchIdHint);
+          if (String(hinted?.token || "").toLowerCase() === tokenAddress.toLowerCase()) {
+            launch = hinted;
+          }
+        } catch {
+          launch = null;
+        }
+      }
+      if (!launch) {
+        const launchList = await readLaunchList(ctx);
+        launch = launchList.find((row) => String(row.token || "").toLowerCase() === tokenAddress.toLowerCase()) || null;
+      }
       if (!launch) {
         return null;
       }
@@ -2912,7 +2927,7 @@ async function handleTokenRequest(req, res, tokenCandidate) {
         imageURI: sanitizeLaunchImageUri(launch.imageURI)
       };
       const poolBase = await readPoolSnapshot(ctx.provider, safeLaunch).catch(() => buildPoolFallbackFromLaunch(safeLaunch));
-      const feeSnapshot = await readTokenFeeSnapshot(ctx.provider, safeLaunch.token).catch(() => ({
+      const emptyFeeSnapshot = {
         creator: ethers.ZeroAddress,
         platformFeeRecipient: ethers.ZeroAddress,
         creatorClaimableWei: "0",
@@ -2921,7 +2936,10 @@ async function handleTokenRequest(req, res, tokenCandidate) {
         creatorClaimableTokens: 0,
         creatorClaimedTokens: 0,
         platformClaimableTokens: 0
-      }));
+      };
+      const feeSnapshot = lite
+        ? emptyFeeSnapshot
+        : await readTokenFeeSnapshot(ctx.provider, safeLaunch.token).catch(() => emptyFeeSnapshot);
 
       if (lite) {
         return {

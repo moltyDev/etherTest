@@ -656,8 +656,14 @@ async function fetchTokenRaw(tokenAddress, options = {}) {
   if (options.fresh) params.set("fresh", "1");
   if (options.lite) params.set("lite", "1");
   if (options.chainId) params.set("chainId", String(options.chainId));
+  if (Number.isFinite(Number(options.launchId))) params.set("launchId", String(Math.floor(Number(options.launchId))));
   const qs = params.toString();
   return fetchJsonRaw(`/api/token/${tokenAddress}${qs ? `?${qs}` : ""}`);
+}
+
+function seededLaunchId() {
+  const seeded = readSeededLaunch(state.token);
+  return Number.isFinite(Number(seeded?.id)) ? Number(seeded.id) : null;
 }
 
 async function discoverTokenAcrossChains(tokenAddress) {
@@ -1964,7 +1970,7 @@ async function loadTokenPage(forceFresh = false, lite = false) {
   let payload;
   try {
     // Always try chain-agnostic fetch first so stale preferred-chain state doesn't blank token page.
-    payload = await fetchTokenRaw(state.token, { fresh: forceFresh, lite });
+    payload = await fetchTokenRaw(state.token, { fresh: forceFresh, lite, launchId: seededLaunchId() });
   } catch (err) {
     // First, attempt a chain-agnostic recovery for any token-load failure.
     // This fixes stale preferred-chain cases where the token exists on a different chain.
@@ -1992,7 +1998,7 @@ async function loadTokenPage(forceFresh = false, lite = false) {
       next.searchParams.set("token", resolved);
       window.history.replaceState({}, "", next.toString());
       try {
-        payload = await api.token(state.token, { fresh: forceFresh, lite });
+        payload = await api.token(state.token, { fresh: forceFresh, lite, launchId: seededLaunchId() });
       } catch {
         const discovered = await discoverTokenAcrossChains(state.token);
         if (!discovered?.payload) throw err;

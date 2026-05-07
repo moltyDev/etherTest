@@ -668,7 +668,7 @@ async function hydrateVisibleMarketCaps(limit = 12) {
   await Promise.all(
     visible.map(async (launch) => {
       try {
-        const payload = await api.token(launch.token, { lite: true, fresh: true });
+        const payload = await api.token(launch.token, { lite: true, fresh: true, launchId: launch.id });
         if (payload?.launch?.token) {
           hydrated.push({ ...payload.launch, dexSnapshot: payload.dex || launch.dexSnapshot || null });
         }

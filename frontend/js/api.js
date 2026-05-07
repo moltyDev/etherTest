@@ -67,6 +67,7 @@ export const api = {
     const params = new URLSearchParams();
     if (options.fresh) params.set("fresh", "1");
     if (options.lite) params.set("lite", "1");
+    if (Number.isFinite(Number(options.launchId))) params.set("launchId", String(Math.floor(Number(options.launchId))));
     const qs = params.toString();
     return apiGet(`/api/token/${tokenAddress}${qs ? `?${qs}` : ""}`);
   },

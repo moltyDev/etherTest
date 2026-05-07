@@ -2626,7 +2626,7 @@ app.get("/api/launches", async (req, res) => {
             pool = buildPoolFallbackFromLaunch(launch);
           }
         }
-        if (!lite && includeDex && index < 8) {
+        if (includeDex && index < 8) {
           try {
             dexSnapshot = await readDexScreenerTokenSnapshot(ctx.chainId, launch.token, pool?.migratedPair || "");
           } catch {

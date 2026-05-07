@@ -990,7 +990,7 @@ async function refreshLaunches(options = {}) {
   }
 
   try {
-    const quick = await fetchRecentLaunchPage({ limit: 24, lite: true, includeDex: false });
+    const quick = await fetchRecentLaunchPage({ limit: 24, lite: true, includeDex: true });
     if (quick.launches.length) {
       state.launches = mergeLaunchRows(state.launches, quick.launches);
       saveCachedLaunches(state.launches);

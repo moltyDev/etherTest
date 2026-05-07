@@ -464,12 +464,51 @@ function defaultUsername(address) {
   return `eth_${normalized.slice(2, 8).toLowerCase()}`;
 }
 
+function sanitizePersistedImageUri(rawImageURI = "") {
+  const raw = String(rawImageURI || "").trim();
+  if (!raw) return "";
+
+  if (raw.startsWith("data:image/")) {
+    return raw;
+  }
+
+  const toUploadPathOrFallback = (pathname = "") => {
+    const cleanPath = String(pathname || "").trim();
+    if (!cleanPath.startsWith("/uploads/")) {
+      return "/assets/support-pill-main.png";
+    }
+    const filename = path.basename(cleanPath);
+    if (!filename) return "/assets/support-pill-main.png";
+    const filePath = path.join(UPLOADS_DIR, filename);
+    if (fs.existsSync(filePath)) {
+      return `/uploads/${filename}`;
+    }
+    return "/assets/support-pill-main.png";
+  };
+
+  try {
+    const parsed = new URL(raw);
+    const host = String(parsed.hostname || "").toLowerCase();
+    const isLoopbackHost = host === "localhost" || host === "127.0.0.1" || host === "::1";
+    if (isLoopbackHost) {
+      if (parsed.pathname.startsWith("/assets/")) return parsed.pathname;
+      if (parsed.pathname.startsWith("/uploads/")) return toUploadPathOrFallback(parsed.pathname);
+      return "/assets/support-pill-main.png";
+    }
+    return raw;
+  } catch {
+    if (raw.startsWith("/assets/")) return raw;
+    if (raw.startsWith("/uploads/")) return toUploadPathOrFallback(raw);
+    return raw;
+  }
+}
+
 function sanitizeProfileValue(address, value = {}) {
   const normalized = normalizeAddress(address);
   const safeAddress = normalized || "";
   const usernameRaw = String(value.username || "").trim();
   const bioRaw = String(value.bio || "").trim();
-  const imageRaw = String(value.imageUri || "").trim();
+  const imageRaw = sanitizePersistedImageUri(String(value.imageUri || "").trim());
   return {
     address: safeAddress,
     username: usernameRaw || defaultUsername(safeAddress),
@@ -1817,6 +1856,9 @@ async function mapWithConcurrency(items, concurrency, worker) {
 
 async function readLaunch(factory, index) {
   const launch = await factory.getLaunch(index);
+  const rawImageURI = String(launch.imageURI || "").trim();
+  const imageURI = sanitizeLaunchImageUri(rawImageURI);
+
   return {
     id: index,
     token: launch.token,
@@ -1824,11 +1866,49 @@ async function readLaunch(factory, index) {
     creator: launch.creator,
     name: launch.name,
     symbol: launch.symbol,
-    imageURI: launch.imageURI,
+    imageURI,
     description: launch.description,
     totalSupply: launch.totalSupply.toString(),
     creatorAllocation: launch.creatorAllocation.toString(),
     createdAt: Number(launch.createdAt)
+  };
+}
+
+function sanitizeLaunchImageUri(rawImageURI = "") {
+  return sanitizePersistedImageUri(rawImageURI);
+}
+
+function buildPoolFallbackFromLaunch(launch) {
+  const totalSupply = BigInt(String(launch?.totalSupply || "0"));
+  const spotPriceWei = 0n;
+  const marketCapWei = 0n;
+  const fdvWei = 0n;
+  return {
+    feeBps: 50,
+    graduated: false,
+    migratedPair: ethers.ZeroAddress,
+    dexRouter: ethers.ZeroAddress,
+    lpRecipient: ethers.ZeroAddress,
+    priceSource: "bonding",
+    spotPriceWei: spotPriceWei.toString(),
+    effectiveSpotPriceWei: spotPriceWei.toString(),
+    spotPriceEth: 0,
+    tokenReserve: "0",
+    ethReserveWei: "0",
+    ethReserveEth: 0,
+    dexWethReserveWei: "0",
+    dexWethReserveEth: 0,
+    dexWethAddress: ethers.ZeroAddress,
+    dexTokenReserve: "0",
+    graduationTargetEthWei: "0",
+    graduationTargetEth: 0,
+    bondingProgressBps: 0,
+    bondingProgressPct: 0,
+    circulatingSupply: totalSupply.toString(),
+    fdvWei: fdvWei.toString(),
+    fdvEth: 0,
+    marketCapWei: marketCapWei.toString(),
+    marketCapEth: 0
   };
 }
 
@@ -1840,19 +1920,26 @@ async function readPoolSnapshot(provider, launch) {
   }
 
   const pool = new ethers.Contract(launch.pool, POOL_ARTIFACT.abi, provider);
+  const callOr = async (fn, fallback) => {
+    try {
+      return await fn();
+    } catch {
+      return fallback;
+    }
+  };
 
   const [spotPrice, tokenReserve, ethReserve, feeBps, graduated, graduationTargetEth, targetProgressBps, migratedPair, dexRouter, lpRecipient] =
     await Promise.all([
-      pool.spotPrice(),
-      pool.tokenReserve(),
-      pool.ethReserve(),
-      pool.feeBps(),
-      pool.graduated(),
-      pool.graduationTargetEth(),
-      pool.targetProgressBps(),
-      pool.migratedPair(),
-      pool.dexRouter(),
-      pool.lpRecipient()
+      callOr(() => pool.spotPrice(), 0n),
+      callOr(() => pool.tokenReserve(), 0n),
+      callOr(() => pool.ethReserve(), 0n),
+      callOr(() => pool.feeBps(), 50n),
+      callOr(() => pool.graduated(), false),
+      callOr(() => pool.graduationTargetEth(), 0n),
+      callOr(() => pool.targetProgressBps(), 0n),
+      callOr(() => pool.migratedPair(), ethers.ZeroAddress),
+      callOr(() => pool.dexRouter(), ethers.ZeroAddress),
+      callOr(() => pool.lpRecipient(), ethers.ZeroAddress)
     ]);
 
   const totalSupply = BigInt(launch.totalSupply);
@@ -1863,11 +1950,30 @@ async function readPoolSnapshot(provider, launch) {
   let dexTokenReserveWei = 0n;
   let dexWethAddress = ethers.ZeroAddress;
 
-  if (Boolean(graduated) && !isZeroAddress(migratedPair) && !isZeroAddress(dexRouter)) {
+  if (Boolean(graduated) && !isZeroAddress(migratedPair)) {
     try {
       const pair = new ethers.Contract(migratedPair, V2_PAIR_ABI, provider);
-      const router = new ethers.Contract(dexRouter, V2_ROUTER_ABI, provider);
-      const [token0, token1, reserves, weth] = await Promise.all([pair.token0(), pair.token1(), pair.getReserves(), router.WETH()]);
+      const [token0, token1, reserves, wethFromPair] = await Promise.all([
+        pair.token0(),
+        pair.token1(),
+        pair.getReserves(),
+        callOr(
+          () => {
+            if (!isZeroAddress(dexRouter)) {
+              const router = new ethers.Contract(dexRouter, V2_ROUTER_ABI, provider);
+              return router.WETH();
+            }
+            return Promise.resolve(ethers.ZeroAddress);
+          },
+          ethers.ZeroAddress
+        )
+      ]);
+      const weth =
+        !isZeroAddress(wethFromPair) ?
+          wethFromPair
+        : token0.toLowerCase() === launch.token.toLowerCase() ?
+          token1
+        : token0;
       dexWethAddress = normalizeAddress(weth) || ethers.ZeroAddress;
 
       const launchToken = launch.token.toLowerCase();
@@ -2733,9 +2839,22 @@ async function handleTokenRequest(req, res, tokenCandidate) {
         return null;
       }
 
-      const poolBase = await readPoolSnapshot(ctx.provider, launch);
-      const feeSnapshot = await readTokenFeeSnapshot(ctx.provider, launch.token);
-      let dex = await readDexScreenerTokenSnapshot(ctx.chainId, launch.token, poolBase.migratedPair);
+      const safeLaunch = {
+        ...launch,
+        imageURI: sanitizeLaunchImageUri(launch.imageURI)
+      };
+      const poolBase = await readPoolSnapshot(ctx.provider, safeLaunch).catch(() => buildPoolFallbackFromLaunch(safeLaunch));
+      const feeSnapshot = await readTokenFeeSnapshot(ctx.provider, safeLaunch.token).catch(() => ({
+        creator: ethers.ZeroAddress,
+        platformFeeRecipient: ethers.ZeroAddress,
+        creatorClaimableWei: "0",
+        platformClaimableWei: "0",
+        creatorClaimedWei: "0",
+        creatorClaimableTokens: 0,
+        creatorClaimedTokens: 0,
+        platformClaimableTokens: 0
+      }));
+      let dex = await readDexScreenerTokenSnapshot(ctx.chainId, safeLaunch.token, poolBase.migratedPair);
       const pairFallback = normalizeAddress(dex?.pairAddress || "");
       const effectivePair = normalizeAddress(poolBase.migratedPair) || pairFallback || ethers.ZeroAddress;
       const pool =
@@ -2750,9 +2869,9 @@ async function handleTokenRequest(req, res, tokenCandidate) {
       const useOnchainTopHolders = String(process.env.USE_ONCHAIN_TOP_HOLDERS || "0") === "1";
 
       const [topHoldersRes, geckoRes, geckoTradesRes] = await Promise.allSettled([
-        useOnchainTopHolders && !lite ? readTopHolders(ctx.provider, launch, 25) : Promise.resolve(null),
+        useOnchainTopHolders && !lite ? readTopHolders(ctx.provider, safeLaunch, 25) : Promise.resolve(null),
         readGeckoPoolStatus(ctx.chainId, effectivePair),
-        readGeckoPoolTrades(ctx.chainId, effectivePair, launch.token, pool.dexWethAddress)
+        readGeckoPoolTrades(ctx.chainId, effectivePair, safeLaunch.token, pool.dexWethAddress)
       ]);
 
       const topHolders = topHoldersRes.status === "fulfilled" ? topHoldersRes.value : null;
@@ -2764,7 +2883,7 @@ async function handleTokenRequest(req, res, tokenCandidate) {
           dexId: "uniswap_v2",
           pairAddress: normalizeAddress(effectivePair || "") || "",
           pairUrl: gecko.poolUrl || "",
-          baseSymbol: String(launch.symbol || ""),
+          baseSymbol: String(safeLaunch.symbol || ""),
           quoteSymbol: "WETH",
           priceNative: toNumberSafe(gecko.snapshot.priceNative, 0),
           priceUsd: toNumberSafe(gecko.snapshot.priceUsd, 0),
@@ -2773,7 +2892,7 @@ async function handleTokenRequest(req, res, tokenCandidate) {
           liquidityUsd: toNumberSafe(gecko.snapshot.liquidityUsd, 0),
           volume24hUsd: toNumberSafe(gecko.snapshot.volume24hUsd, 0),
           priceChange24hPct: toNumberSafe(gecko.snapshot.priceChange24hPct, 0),
-          pairCreatedAt: Number(launch.createdAt || 0) * 1000,
+          pairCreatedAt: Number(safeLaunch.createdAt || 0) * 1000,
           raw: { source: "gecko_snapshot" }
         };
       }
@@ -2787,9 +2906,9 @@ async function handleTokenRequest(req, res, tokenCandidate) {
 
       if (shouldReadPoolTrades || shouldReadPairTrades) {
         const [localTradesRes, pairTradesRes] = await Promise.allSettled([
-          shouldReadPoolTrades ? readRecentTrades(ctx.provider, launch.pool, TOKEN_TRADES_RESPONSE_LIMIT) : Promise.resolve({ trades: [], chart: [] }),
+          shouldReadPoolTrades ? readRecentTrades(ctx.provider, safeLaunch.pool, TOKEN_TRADES_RESPONSE_LIMIT) : Promise.resolve({ trades: [], chart: [] }),
           shouldReadPairTrades
-            ? readPairRecentTrades(ctx.provider, effectivePair, launch.token, pool.dexWethAddress, TOKEN_TRADES_RESPONSE_LIMIT)
+            ? readPairRecentTrades(ctx.provider, effectivePair, safeLaunch.token, pool.dexWethAddress, TOKEN_TRADES_RESPONSE_LIMIT)
             : Promise.resolve({ trades: [], chart: [] })
         ]);
         localTradesPayload = localTradesRes.status === "fulfilled" ? localTradesRes.value : { trades: [], chart: [] };
@@ -2835,7 +2954,7 @@ async function handleTokenRequest(req, res, tokenCandidate) {
         const dexPriceWei = parseAmountToWei(String(dex.priceNative || "0"), 18);
         if (dexPriceWei > 0n) {
           const circulating = BigInt(pool.circulatingSupply || "0");
-          const totalSupply = BigInt(launch.totalSupply || "0");
+          const totalSupply = BigInt(safeLaunch.totalSupply || "0");
           const marketCapWei = circulating > 0n ? (dexPriceWei * circulating) / 10n ** 18n : 0n;
           const fdvWei = totalSupply > 0n ? (dexPriceWei * totalSupply) / 10n ** 18n : 0n;
           pool.effectiveSpotPriceWei = dexPriceWei.toString();
@@ -2867,12 +2986,12 @@ async function handleTokenRequest(req, res, tokenCandidate) {
         }
       }
 
-      return {
-        launch: {
-          ...launch,
-          tokenAddress: launch.token,
-          poolAddress: launch.pool,
-          creatorProfile: await getPersistedProfile(launch.creator),
+        return {
+          launch: {
+          ...safeLaunch,
+          tokenAddress: safeLaunch.token,
+          poolAddress: safeLaunch.pool,
+          creatorProfile: await getPersistedProfile(safeLaunch.creator),
           pool,
           feeSnapshot
         },
@@ -3032,6 +3151,20 @@ app.get("/token", (_req, res) => {
 
 app.get("/profile", (_req, res) => {
   res.sendFile(path.join(FRONTEND_DIR, "profile.html"));
+});
+
+app.get("/uploads/:filename", (req, res) => {
+  const filename = path.basename(String(req.params.filename || ""));
+  if (!filename) {
+    return res.status(404).end();
+  }
+
+  const filePath = path.join(UPLOADS_DIR, filename);
+  if (fs.existsSync(filePath)) {
+    return res.sendFile(filePath);
+  }
+
+  return res.sendFile(path.join(FRONTEND_DIR, "assets", "support-pill-main.png"));
 });
 
 app.use(

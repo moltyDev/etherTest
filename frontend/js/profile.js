@@ -103,7 +103,9 @@ const state = {
   socialLoaded: false,
   socialLoading: false,
   isFollowingProfile: false,
-  followBusy: false
+  followBusy: false,
+  profileLoading: false,
+  profileLoadSeq: 0
 };
 let walletHub = null;
 let walletControls = null;
@@ -855,6 +857,10 @@ function renderActiveTab() {
     ui.profileTabContent.innerHTML = `<p class="muted">Load a profile to see details.</p>`;
     return;
   }
+  if (state.profileLoading) {
+    ui.profileTabContent.innerHTML = `<p class="muted">Loading profile...</p>`;
+    return;
+  }
 
   if (state.activeTab === "balances") {
     ui.profileTabContent.innerHTML = renderBalancesTab(payload.holdings || []);
@@ -1024,29 +1030,57 @@ async function loadProfile(address) {
     throw new Error("Enter a valid wallet address");
   }
 
+  const requestSeq = ++state.profileLoadSeq;
+  state.profileLoading = true;
   state.address = normalized;
   updateQuery(normalized);
-  const payload = await api.profile(normalized);
-  const relatedAddresses = new Set([normalized]);
-  for (const row of payload?.created || []) {
-    if (row?.creator) relatedAddresses.add(row.creator);
-  }
-  for (const row of payload?.holdings || []) {
-    if (row?.creator) relatedAddresses.add(row.creator);
-  }
-  for (const row of payload?.followers || []) {
-    if (row?.address) relatedAddresses.add(row.address);
-  }
-  for (const row of payload?.following || []) {
-    if (row?.address) relatedAddresses.add(row.address);
-  }
-  await hydrateUserProfiles([...relatedAddresses], { force: true });
-  state.payload = payload;
-  state.socialLoaded = Boolean(payload.socialIncluded);
-  state.socialLoading = false;
-  setSummary(payload);
+  // Fast first paint: show header/address instantly, then hydrate profile data async.
+  const cachedFollowers = loadCachedFollowerCount(normalized);
+  const warmPayload = {
+    address: normalized,
+    profile: loadUserProfile(normalized),
+    created: [],
+    holdings: [],
+    followers: [],
+    following: [],
+    followersCount: Number(cachedFollowers || 0),
+    followingCount: 0,
+    socialIncluded: false
+  };
+  state.payload = warmPayload;
+  setSummary(warmPayload);
   renderActiveTab();
-  await refreshFollowState();
+
+  try {
+    const payload = await api.profile(normalized);
+    if (requestSeq !== state.profileLoadSeq) return;
+    const relatedAddresses = new Set([normalized]);
+    for (const row of payload?.created || []) {
+      if (row?.creator) relatedAddresses.add(row.creator);
+    }
+    for (const row of payload?.holdings || []) {
+      if (row?.creator) relatedAddresses.add(row.creator);
+    }
+    for (const row of payload?.followers || []) {
+      if (row?.address) relatedAddresses.add(row.address);
+    }
+    for (const row of payload?.following || []) {
+      if (row?.address) relatedAddresses.add(row.address);
+    }
+    await hydrateUserProfiles([...relatedAddresses], { force: true });
+    if (requestSeq !== state.profileLoadSeq) return;
+    state.payload = payload;
+    state.socialLoaded = Boolean(payload.socialIncluded);
+    state.socialLoading = false;
+    setSummary(payload);
+    renderActiveTab();
+    await refreshFollowState();
+  } finally {
+    if (requestSeq === state.profileLoadSeq) {
+      state.profileLoading = false;
+      renderActiveTab();
+    }
+  }
 }
 
 async function loadConfig() {

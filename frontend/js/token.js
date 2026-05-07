@@ -1162,13 +1162,7 @@ function setTokenHeader(launch) {
   updateTradeQuickTokenLabels(launch.symbol);
 
   if (ui.terminalLink) {
-    const network = dexScreenerNetworkSlug();
-    const pair = String(launch?.pool?.migratedPair || state.dex?.pairAddress || "");
-    if (hasDexMarket(launch)) {
-      ui.terminalLink.href = `https://dexscreener.com/${network}/${pair}`;
-    } else if (launch.token) {
-      ui.terminalLink.href = `https://dexscreener.com/${network}/${launch.token}`;
-    }
+    ui.terminalLink.href = "https://trade.padre.gg/";
   }
 
   if (ui.copyTokenBtn) {

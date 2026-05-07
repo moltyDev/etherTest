@@ -3177,7 +3177,12 @@ app.get("/api/profile/:address", async (req, res) => {
     }
 
     async function collectProfileRowsForContext(chainCtx) {
-      const launchList = await readLaunchList(chainCtx);
+      let launchList = [];
+      try {
+        launchList = await readLaunchList(chainCtx);
+      } catch {
+        launchList = [];
+      }
       const createdRows = [];
       const holdingsRows = [];
       const poolCache = new Map();
@@ -3186,7 +3191,11 @@ app.get("/api/profile/:address", async (req, res) => {
       async function getPoolForLaunch(launch) {
         const key = `${chainCtx.chainId}:${launch.pool.toLowerCase()}`;
         if (!poolCache.has(key)) {
-          poolCache.set(key, await readPoolSnapshot(chainCtx.provider, launch));
+          try {
+            poolCache.set(key, await readPoolSnapshot(chainCtx.provider, launch));
+          } catch {
+            poolCache.set(key, buildPoolFallbackFromLaunch(launch));
+          }
         }
         return poolCache.get(key);
       }
@@ -3194,15 +3203,32 @@ app.get("/api/profile/:address", async (req, res) => {
       async function getTokenFeeForLaunch(launch) {
         const key = `${chainCtx.chainId}:${launch.token.toLowerCase()}`;
         if (!tokenFeeCache.has(key)) {
-          tokenFeeCache.set(key, await readTokenFeeSnapshot(chainCtx.provider, launch.token));
+          try {
+            tokenFeeCache.set(key, await readTokenFeeSnapshot(chainCtx.provider, launch.token));
+          } catch {
+            tokenFeeCache.set(key, {
+              creator: ethers.ZeroAddress,
+              platformFeeRecipient: ethers.ZeroAddress,
+              creatorClaimableWei: "0",
+              platformClaimableWei: "0",
+              creatorClaimedWei: "0",
+              creatorClaimableTokens: 0,
+              creatorClaimedTokens: 0,
+              platformClaimableTokens: 0
+            });
+          }
         }
         return tokenFeeCache.get(key);
       }
 
       const balances = await mapWithConcurrency(launchList, MAX_BALANCE_READ_CONCURRENCY, async (launch) => {
-        const token = new ethers.Contract(launch.token, TOKEN_ARTIFACT.abi, chainCtx.provider);
-        const balance = await token.balanceOf(address);
-        return balance.toString();
+        try {
+          const token = new ethers.Contract(launch.token, TOKEN_ARTIFACT.abi, chainCtx.provider);
+          const balance = await token.balanceOf(address);
+          return balance.toString();
+        } catch {
+          return "0";
+        }
       });
 
       for (let i = 0; i < launchList.length; i++) {

@@ -143,13 +143,14 @@ function mergeLaunchRows(base = [], updates = []) {
 }
 
 async function fetchLaunchPages(options = {}) {
-  const pageSize = 120;
-  let offset = 0;
+  const pageSize = Math.max(1, Math.min(120, Number(options.pageSize || 24)));
+  let offset = Math.max(0, Number(options.offset || 0));
+  const maxPages = Math.max(1, Math.min(12, Number(options.maxPages || 8)));
   let total = null;
   const launches = [];
   const seen = new Set();
 
-  for (let pageIndex = 0; pageIndex < 8; pageIndex++) {
+  for (let pageIndex = 0; pageIndex < maxPages; pageIndex++) {
     const page = await api.launches(pageSize, offset, options);
     const rows = Array.isArray(page?.launches) ? page.launches.filter((row) => Boolean(row && row.token)) : [];
     if (total === null) total = Number(page?.total || 0);
@@ -164,6 +165,12 @@ async function fetchLaunchPages(options = {}) {
   }
 
   return { total: Number(total || launches.length), launches };
+}
+
+async function fetchRecentLaunchPage(options = {}) {
+  const page = await api.launches(options.limit || 24, 0, options);
+  const launches = Array.isArray(page?.launches) ? page.launches.filter((row) => Boolean(row && row.token)) : [];
+  return { total: Number(page?.total || launches.length), launches };
 }
 
 function followerMetaText(count) {
@@ -921,7 +928,7 @@ async function refreshLaunches(options = {}) {
   }
 
   try {
-    const quick = await fetchLaunchPages({ lite: true, includeDex: false, fresh: true });
+    const quick = await fetchRecentLaunchPage({ limit: 24, lite: true, includeDex: false });
     if (quick.launches.length) {
       state.launches = mergeLaunchRows(state.launches, quick.launches);
       saveCachedLaunches(state.launches);
@@ -938,7 +945,7 @@ async function refreshLaunches(options = {}) {
     for (const delayMs of retryDelays) {
       if (delayMs > 0) await sleep(delayMs);
       try {
-        launchesRes = await fetchLaunchPages({ includeDex: false, fresh: true });
+        launchesRes = await fetchLaunchPages({ pageSize: 24, includeDex: false });
         break;
       } catch (error) {
         lastError = error;
@@ -1077,11 +1084,14 @@ async function init() {
   setupInteractions();
   initCoinSearchOverlay({ triggerInputs: [ui.searchInput] });
 
-  try {
-    await refreshEthUsd();
-  } catch {
-    // keep fallback
-  }
+  refreshEthUsd()
+    .then(() => {
+      renderTrending();
+      renderExplore();
+    })
+    .catch(() => {
+      // keep fallback
+    });
 
   await loadConfig();
   try {

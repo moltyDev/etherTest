@@ -9,7 +9,7 @@ function withPreferredChain(path) {
 export async function apiGet(path) {
   const target = withPreferredChain(path);
   const ctrl = new AbortController();
-  const timeout = setTimeout(() => ctrl.abort(), 10000);
+  const timeout = setTimeout(() => ctrl.abort(), 25000);
   const res = await fetch(target, { cache: "no-store", signal: ctrl.signal }).finally(() => clearTimeout(timeout));
   if (!res.ok) {
     let message = `HTTP ${res.status}`;

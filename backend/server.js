@@ -381,8 +381,9 @@ function pickRpcUrls(chainId) {
   return urls;
 }
 
-async function buildContext(chainId, factoryAddress, deployment = loadDeploymentConfig()) {
+async function buildContext(chainId, factoryAddress, deployment = loadDeploymentConfig(), options = {}) {
   const normalizedChainId = parseChainId(chainId);
+  const verify = options.verify !== false;
   if (!normalizedChainId) {
     throw new Error(`Invalid chainId ${chainId}`);
   }
@@ -404,11 +405,13 @@ async function buildContext(chainId, factoryAddress, deployment = loadDeployment
         // tripping strict per-second RPC limits in production.
         staticNetwork: true
       });
-      await p.getBlockNumber();
       const f = new ethers.Contract(factoryAddress, FACTORY_ARTIFACT.abi, p);
-      const code = await p.getCode(factoryAddress);
-      if (!code || code === "0x") {
-        throw new Error("Factory contract not found at configured address");
+      if (verify) {
+        await p.getBlockNumber();
+        const code = await p.getCode(factoryAddress);
+        if (!code || code === "0x") {
+          throw new Error("Factory contract not found at configured address");
+        }
       }
       provider = p;
       factory = f;
@@ -433,14 +436,14 @@ async function buildContext(chainId, factoryAddress, deployment = loadDeployment
   };
 }
 
-async function getContext(requestedChainId = null) {
+async function getContext(requestedChainId = null, options = {}) {
   const deployment = loadDeploymentConfig();
   const chainId = requestedChainId || defaultChainIdFromConfig(deployment);
   const factoryAddress = resolveFactoryAddress(chainId, deployment);
   const key = `${chainId}:${factoryAddress.toLowerCase()}`;
 
   if (!contextCache.has(key)) {
-    contextCache.set(key, await buildContext(chainId, factoryAddress, deployment));
+    contextCache.set(key, await buildContext(chainId, factoryAddress, deployment, options));
   }
 
   return contextCache.get(key);
@@ -2579,7 +2582,7 @@ app.get("/api/launches", async (req, res) => {
 
     const deployment = loadDeploymentConfig();
     const requestedChainId = resolveRequestedChainId(req, deployment);
-    const ctx = await getContext(requestedChainId);
+    const ctx = await getContext(requestedChainId, { verify: false });
     const count = await readFactoryLaunchCount(ctx.factory);
     const launchesKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${count}:${limit}:${offset}:${includeDex ? "dex" : "nodex"}:${lite ? "lite" : "full"}`;
     const builder = async () => {
@@ -2877,8 +2880,8 @@ async function handleTokenRequest(req, res, tokenCandidate) {
 
     const deployment = loadDeploymentConfig();
     const requestedChainId = resolveRequestedChainId(req, deployment);
-    const ctx = await getContext(requestedChainId);
     const lite = String(req.query.lite || "0") === "1";
+    const ctx = await getContext(requestedChainId, { verify: !lite });
     const tokenKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${tokenAddress.toLowerCase()}:${lite ? "lite" : "full"}`;
     const forceFresh = String(req.query.fresh || "0") === "1";
     const builder = async () => {

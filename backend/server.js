@@ -93,6 +93,8 @@ const CREATOR_CLAIM_LOOKBACK_BLOCKS = Math.max(
 const ENABLE_ONCHAIN_LOG_TRADES = String(process.env.ENABLE_ONCHAIN_LOG_TRADES || "0") === "1";
 const ENABLE_ONCHAIN_SOCIAL_LOGS = String(process.env.ENABLE_ONCHAIN_SOCIAL_LOGS || "0") === "1";
 const ENABLE_ONCHAIN_CLAIM_HISTORY = String(process.env.ENABLE_ONCHAIN_CLAIM_HISTORY || "0") === "1";
+const RPC_PROBE_TIMEOUT_MS = Math.max(1_500, Number(process.env.RPC_PROBE_TIMEOUT_MS || 4_500));
+const RPC_READ_TIMEOUT_MS = Math.max(2_000, Number(process.env.RPC_READ_TIMEOUT_MS || 8_000));
 
 const launchesCache = new Map();
 const launchListCache = new Map();
@@ -174,6 +176,18 @@ async function withCache(cache, key, ttlMs, builder) {
   const value = await builder();
   setCachedValue(cache, key, value, ttlMs);
   return value;
+}
+
+function withTimeout(promise, ms, label = "operation") {
+  let timeout = null;
+  return Promise.race([
+    Promise.resolve(promise).finally(() => {
+      if (timeout) clearTimeout(timeout);
+    }),
+    new Promise((_, reject) => {
+      timeout = setTimeout(() => reject(new Error(`${label} timed out`)), ms);
+    })
+  ]);
 }
 
 function isLogRangeLimitError(error) {
@@ -407,11 +421,13 @@ async function buildContext(chainId, factoryAddress, deployment = loadDeployment
       });
       const f = new ethers.Contract(factoryAddress, FACTORY_ARTIFACT.abi, p);
       if (verify) {
-        await p.getBlockNumber();
-        const code = await p.getCode(factoryAddress);
+        await withTimeout(p.getBlockNumber(), RPC_PROBE_TIMEOUT_MS, "RPC block probe");
+        const code = await withTimeout(p.getCode(factoryAddress), RPC_PROBE_TIMEOUT_MS, "factory code probe");
         if (!code || code === "0x") {
           throw new Error("Factory contract not found at configured address");
         }
+      } else {
+        await withTimeout(f.getLaunchCount(), RPC_PROBE_TIMEOUT_MS, "factory count probe");
       }
       provider = p;
       factory = f;
@@ -1869,7 +1885,7 @@ async function readFactoryLaunchCount(factory) {
   ];
   for (const call of fallbackCalls) {
     try {
-      const value = await call();
+      const value = await withTimeout(call(), RPC_READ_TIMEOUT_MS, "factory launch count");
       const count = Number(value || 0);
       if (Number.isFinite(count) && count >= 0) return count;
     } catch {
@@ -1880,7 +1896,7 @@ async function readFactoryLaunchCount(factory) {
 }
 
 async function readLaunch(factory, index) {
-  const launch = await factory.getLaunch(index);
+  const launch = await withTimeout(factory.getLaunch(index), RPC_READ_TIMEOUT_MS, `launch ${index} read`);
   const rawImageURI = String(launch.imageURI || "").trim();
   const imageURI = sanitizeLaunchImageUri(rawImageURI);
 

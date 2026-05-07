@@ -3176,66 +3176,105 @@ app.get("/api/profile/:address", async (req, res) => {
       return res.json(cachedProfile);
     }
 
-    const launchList = await readLaunchList(ctx);
+    async function collectProfileRowsForContext(chainCtx) {
+      const launchList = await readLaunchList(chainCtx);
+      const createdRows = [];
+      const holdingsRows = [];
+      const poolCache = new Map();
+      const tokenFeeCache = new Map();
+
+      async function getPoolForLaunch(launch) {
+        const key = `${chainCtx.chainId}:${launch.pool.toLowerCase()}`;
+        if (!poolCache.has(key)) {
+          poolCache.set(key, await readPoolSnapshot(chainCtx.provider, launch));
+        }
+        return poolCache.get(key);
+      }
+
+      async function getTokenFeeForLaunch(launch) {
+        const key = `${chainCtx.chainId}:${launch.token.toLowerCase()}`;
+        if (!tokenFeeCache.has(key)) {
+          tokenFeeCache.set(key, await readTokenFeeSnapshot(chainCtx.provider, launch.token));
+        }
+        return tokenFeeCache.get(key);
+      }
+
+      const balances = await mapWithConcurrency(launchList, MAX_BALANCE_READ_CONCURRENCY, async (launch) => {
+        const token = new ethers.Contract(launch.token, TOKEN_ARTIFACT.abi, chainCtx.provider);
+        const balance = await token.balanceOf(address);
+        return balance.toString();
+      });
+
+      for (let i = 0; i < launchList.length; i++) {
+        const launch = launchList[i];
+        const balance = BigInt(balances[i] || "0");
+        const isCreator = String(launch?.creator || "").toLowerCase() === address.toLowerCase();
+
+        if (isCreator) {
+          const pool = await getPoolForLaunch(launch);
+          const feeSnapshot = await getTokenFeeForLaunch(launch);
+          createdRows.push({
+            ...launch,
+            tokenAddress: launch.token,
+            poolAddress: launch.pool,
+            chainId: chainCtx.chainId,
+            creatorProfile: await getPersistedProfile(launch.creator),
+            pool,
+            feeSnapshot,
+            holderBalance: balance.toString(),
+            holderBalanceFloat: toFloat(balance)
+          });
+        }
+
+        if (balance > 0n) {
+          const pool = await getPoolForLaunch(launch);
+          holdingsRows.push({
+            ...launch,
+            tokenAddress: launch.token,
+            poolAddress: launch.pool,
+            chainId: chainCtx.chainId,
+            creatorProfile: await getPersistedProfile(launch.creator),
+            pool,
+            holderBalance: balance.toString(),
+            holderBalanceFloat: toFloat(balance)
+          });
+        }
+      }
+
+      return { createdRows, holdingsRows };
+    }
 
     const created = [];
     const holdings = [];
-    const poolCache = new Map();
-    const tokenFeeCache = new Map();
-
-    async function getPoolForLaunch(launch) {
-      const key = launch.pool.toLowerCase();
-      if (!poolCache.has(key)) {
-        poolCache.set(key, await readPoolSnapshot(ctx.provider, launch));
+    const seenCreated = new Set();
+    const seenHoldings = new Set();
+    function mergeRows(target, rows, seen) {
+      for (const row of rows || []) {
+        const token = String(row?.token || "").toLowerCase();
+        const chain = Number(row?.chainId || 0);
+        const key = `${chain}:${token}`;
+        if (!token || seen.has(key)) continue;
+        seen.add(key);
+        target.push(row);
       }
-      return poolCache.get(key);
     }
 
-    async function getTokenFeeForLaunch(launch) {
-      const key = launch.token.toLowerCase();
-      if (!tokenFeeCache.has(key)) {
-        tokenFeeCache.set(key, await readTokenFeeSnapshot(ctx.provider, launch.token));
-      }
-      return tokenFeeCache.get(key);
-    }
+    const primary = await collectProfileRowsForContext(ctx);
+    mergeRows(created, primary.createdRows, seenCreated);
+    mergeRows(holdings, primary.holdingsRows, seenHoldings);
 
-    const balances = await mapWithConcurrency(launchList, MAX_BALANCE_READ_CONCURRENCY, async (launch) => {
-      const token = new ethers.Contract(launch.token, TOKEN_ARTIFACT.abi, ctx.provider);
-      const balance = await token.balanceOf(address);
-      return balance.toString();
-    });
-
-    for (let i = 0; i < launchList.length; i++) {
-      const launch = launchList[i];
-      const balance = BigInt(balances[i] || "0");
-      const isCreator = launch.creator.toLowerCase() === address.toLowerCase();
-
-      if (isCreator) {
-        const pool = await getPoolForLaunch(launch);
-        const feeSnapshot = await getTokenFeeForLaunch(launch);
-        created.push({
-          ...launch,
-          tokenAddress: launch.token,
-          poolAddress: launch.pool,
-          creatorProfile: await getPersistedProfile(launch.creator),
-          pool,
-          feeSnapshot,
-          holderBalance: balance.toString(),
-          holderBalanceFloat: toFloat(balance)
-        });
-      }
-
-      if (balance > 0n) {
-        const pool = await getPoolForLaunch(launch);
-        holdings.push({
-          ...launch,
-          tokenAddress: launch.token,
-          poolAddress: launch.pool,
-          creatorProfile: await getPersistedProfile(launch.creator),
-          pool,
-          holderBalance: balance.toString(),
-          holderBalanceFloat: toFloat(balance)
-        });
+    // Fallback/merge across additional configured chains so profiles show launches
+    // even when wallet activity spans multiple deployments.
+    const supported = resolveSupportedChains(deployment).map((row) => Number(row?.chainId || 0)).filter((n) => n > 0);
+    for (const chainId of supported) {
+      if (chainId === Number(ctx.chainId)) continue;
+      try {
+        const extraCtx = await getContext(chainId, { verify: false });
+        const extra = await collectProfileRowsForContext(extraCtx);
+        mergeRows(created, extra.createdRows, seenCreated);
+        mergeRows(holdings, extra.holdingsRows, seenHoldings);
+      } catch {
+        // ignore unavailable chain contexts and continue with available data
       }
     }
     const social = await getPersistedSocialGraph(address);

@@ -32,7 +32,7 @@
     },
     {
       "src": "/uploads/(.*)",
-      "dest": "/frontend/uploads/$1"
+      "dest": "backend/server.js"
     },
     {
       "src": "/(favicon\\.ico|robots\\.txt)",

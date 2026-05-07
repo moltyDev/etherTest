@@ -53,7 +53,7 @@ export const api = {
   health: () => apiGet("/api/health"),
   config: () => apiGet("/api/config"),
   stats: () => apiGet("/api/stats"),
-  launches: (limit = 20, offset = 0) => apiGet(`/api/launches?limit=${limit}&offset=${offset}`),
+  launches: (limit = 20, offset = 0) => apiGet(`/api/launches?limit=${limit}&offset=${offset}&includeDex=1`),
   token: (tokenAddress, options = {}) => {
     const params = new URLSearchParams();
     if (options.fresh) params.set("fresh", "1");

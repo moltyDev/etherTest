@@ -271,7 +271,8 @@ function setProfileMenuOpen(open) {
 }
 
 function formatLaunchMarketCap(launch) {
-  const usd = weiToUsd(launch?.pool?.marketCapWei || "0", state.ethUsd);
+  const dexMcap = Number(launch?.dexSnapshot?.marketCapUsd || launch?.dexSnapshot?.fdvUsd || 0);
+  const usd = dexMcap > 0 ? dexMcap : weiToUsd(launch?.pool?.marketCapWei || "0", state.ethUsd);
   return `${formatCompactUsd(usd)} MC`;
 }
 

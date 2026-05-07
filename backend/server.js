@@ -406,7 +406,10 @@ async function buildContext(chainId, factoryAddress, deployment = loadDeployment
       });
       await p.getBlockNumber();
       const f = new ethers.Contract(factoryAddress, FACTORY_ARTIFACT.abi, p);
-      await f.getLaunchCount();
+      const code = await p.getCode(factoryAddress);
+      if (!code || code === "0x") {
+        throw new Error("Factory contract not found at configured address");
+      }
       provider = p;
       factory = f;
       rpcUrl = candidate;
@@ -1854,6 +1857,25 @@ async function mapWithConcurrency(items, concurrency, worker) {
   return results;
 }
 
+async function readFactoryLaunchCount(factory) {
+  if (!factory) return 0;
+  const fallbackCalls = [
+    () => factory.getLaunchCount(),
+    () => factory.launchCount(),
+    () => factory.totalLaunches()
+  ];
+  for (const call of fallbackCalls) {
+    try {
+      const value = await call();
+      const count = Number(value || 0);
+      if (Number.isFinite(count) && count >= 0) return count;
+    } catch {
+      // try next signature
+    }
+  }
+  return 0;
+}
+
 async function readLaunch(factory, index) {
   const launch = await factory.getLaunch(index);
   const rawImageURI = String(launch.imageURI || "").trim();
@@ -2444,17 +2466,24 @@ async function readPoolParticipants(provider, poolAddress, fromBlock, toBlock) {
 }
 
 async function readLaunchList(ctx) {
-  const count = Number(await ctx.factory.getLaunchCount());
+  const count = await readFactoryLaunchCount(ctx.factory);
   const launchListKey = `${ctx.chainId}:${ctx.factoryAddress.toLowerCase()}:${count}`;
 
   return withCache(launchListCache, launchListKey, LAUNCHES_CACHE_TTL_MS, async () => {
     const ids = Array.from({ length: count }, (_row, index) => count - 1 - index);
-    return mapWithConcurrency(ids, MAX_LAUNCH_READ_CONCURRENCY, async (id) => readLaunch(ctx.factory, id));
+    const launches = await mapWithConcurrency(ids, MAX_LAUNCH_READ_CONCURRENCY, async (id) => {
+      try {
+        return await readLaunch(ctx.factory, id);
+      } catch {
+        return null;
+      }
+    });
+    return launches.filter(Boolean);
   });
 }
 
 async function readLaunchPage(ctx, limit, offset) {
-  const count = Number(await ctx.factory.getLaunchCount());
+  const count = await readFactoryLaunchCount(ctx.factory);
   const total = Number.isFinite(count) && count > 0 ? count : 0;
   if (!total) {
     return { total: 0, launches: [] };
@@ -2473,14 +2502,26 @@ async function readLaunchPage(ctx, limit, offset) {
     ids.push(id);
   }
 
-  const launches = await mapWithConcurrency(ids, MAX_LAUNCH_READ_CONCURRENCY, async (id) => readLaunch(ctx.factory, id));
-  return { total, launches };
+  const launches = await mapWithConcurrency(ids, MAX_LAUNCH_READ_CONCURRENCY, async (id) => {
+    try {
+      return await readLaunch(ctx.factory, id);
+    } catch {
+      return null;
+    }
+  });
+  return { total, launches: launches.filter(Boolean) };
 }
 
 async function findLaunchByToken(factory, tokenAddress) {
-  const count = Number(await factory.getLaunchCount());
+  const count = await readFactoryLaunchCount(factory);
   for (let i = count - 1; i >= 0; i--) {
-    const launch = await readLaunch(factory, i);
+    let launch = null;
+    try {
+      launch = await readLaunch(factory, i);
+    } catch {
+      launch = null;
+    }
+    if (!launch) continue;
     if (launch.token.toLowerCase() === tokenAddress.toLowerCase()) {
       return launch;
     }
@@ -2854,7 +2895,12 @@ async function handleTokenRequest(req, res, tokenCandidate) {
         creatorClaimedTokens: 0,
         platformClaimableTokens: 0
       }));
-      let dex = await readDexScreenerTokenSnapshot(ctx.chainId, safeLaunch.token, poolBase.migratedPair);
+      let dex = null;
+      try {
+        dex = await readDexScreenerTokenSnapshot(ctx.chainId, safeLaunch.token, poolBase.migratedPair);
+      } catch {
+        dex = null;
+      }
       const pairFallback = normalizeAddress(dex?.pairAddress || "");
       const effectivePair = normalizeAddress(poolBase.migratedPair) || pairFallback || ethers.ZeroAddress;
       const pool =
@@ -2987,11 +3033,11 @@ async function handleTokenRequest(req, res, tokenCandidate) {
       }
 
         return {
-          launch: {
+        launch: {
           ...safeLaunch,
           tokenAddress: safeLaunch.token,
           poolAddress: safeLaunch.pool,
-          creatorProfile: await getPersistedProfile(safeLaunch.creator),
+          creatorProfile: await getPersistedProfile(safeLaunch.creator).catch(() => sanitizeProfileValue(safeLaunch.creator)),
           pool,
           feeSnapshot
         },
@@ -3164,7 +3210,7 @@ app.get("/uploads/:filename", (req, res) => {
     return res.sendFile(filePath);
   }
 
-  return res.sendFile(path.join(FRONTEND_DIR, "assets", "support-pill-main.png"));
+  return res.redirect(302, "/assets/support-pill-main.png");
 });
 
 app.use(

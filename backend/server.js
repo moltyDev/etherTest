@@ -2942,20 +2942,48 @@ async function handleTokenRequest(req, res, tokenCandidate) {
         : await readTokenFeeSnapshot(ctx.provider, safeLaunch.token).catch(() => emptyFeeSnapshot);
 
       if (lite) {
+        let dexLite = null;
+        try {
+          // Fast hint for first paint: if pool.migratedPair is missing, try a short Dex fallback lookup.
+          dexLite = await withTimeout(
+            readDexScreenerTokenSnapshot(ctx.chainId, safeLaunch.token, poolBase.migratedPair),
+            1200,
+            "lite dex snapshot"
+          );
+        } catch {
+          dexLite = null;
+        }
+        const pairFallbackLite = normalizeAddress(dexLite?.pairAddress || "");
+        const effectivePairLite = normalizeAddress(poolBase.migratedPair) || pairFallbackLite || ethers.ZeroAddress;
+        const poolLite =
+          effectivePairLite !== ethers.ZeroAddress &&
+          String(poolBase.migratedPair || "").toLowerCase() !== effectivePairLite.toLowerCase()
+            ? { ...poolBase, migratedPair: effectivePairLite, graduated: true, priceSource: "dex" }
+            : poolBase;
+        const geckoUrlsLite = buildGeckoPoolUrls(ctx.chainId, effectivePairLite);
+        const geckoLite = geckoUrlsLite.embedUrl
+          ? {
+              network: geckoUrlsLite.network,
+              poolUrl: geckoUrlsLite.poolUrl,
+              embedUrl: geckoUrlsLite.embedUrl,
+              apiUrl: geckoUrlsLite.apiUrl,
+              snapshot: null
+            }
+          : null;
         return {
           launch: {
             ...safeLaunch,
             tokenAddress: safeLaunch.token,
             poolAddress: safeLaunch.pool,
             creatorProfile: await getPersistedProfile(safeLaunch.creator).catch(() => sanitizeProfileValue(safeLaunch.creator)),
-            pool: poolBase,
+            pool: poolLite,
             feeSnapshot
           },
           trades: [],
           chart: [],
           topHolders: null,
-          gecko: null,
-          dex: null
+          gecko: geckoLite,
+          dex: dexLite
         };
       }
 
